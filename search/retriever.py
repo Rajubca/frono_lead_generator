@@ -1,43 +1,50 @@
 from search.opensearch_client import search_opensearch
 
-MAX_DOCS = 3
-MAX_TEXT_CHARS = 800
+MAX_DOCS = 5
+MAX_TEXT_CHARS = 900
 
 
 def _trim(text: str) -> str:
     return text[:MAX_TEXT_CHARS]
 
+
 def retrieve_context(query: str, intent: str) -> str:
     q = query.lower()
 
-    # 🔒 HARD BRAND OVERRIDE
-    if "frono" in q or "about" in q:
-        intent = "ABOUT"
+    # 🔒 FORCE SITE FACTS FOR BRAND / CATEGORIES / PRODUCT RANGE
+    site_fact_triggers = [
+        "frono",
+        "about",
+        "sell",
+        "product",
+        "products",
+        "category",
+        "categories",
+        "range",
+        "christmas",
+        "seasonal",
+        "heating",
+        "garden",
+        "decor",
+        "decoration",
+        "tree",
+        "lights"
+    ]
 
-def retrieve_context(query: str, intent: str) -> str:
-    """
-    Returns VERIFIED context only.
-    Returns empty string if nothing reliable is found.
-    """
-
-    # ---------------- BRAND / ABOUT ----------------
-    if intent in {"ABOUT", "BRAND", "GENERAL"}:
+    if intent in {"ABOUT_BRAND", "GENERAL", "PRODUCT_INFO"} or any(k in q for k in site_fact_triggers):
         results = search_opensearch(
             index="frono_site_facts",
             query={
-                "bool": {
-                    "should": [
-                        {"term": {"type": "about"}},
-                        {"term": {"type": "products"}},
-                        {"term": {"type": "policy"}},
-                        {"term": {"type": "legitimacy"}},
-                        {"term": {"type": "brand"}},
-                        {"term": {"type": "disambiguation"}}
-                    ],
-                    "minimum_should_match": 1
+                "multi_match": {
+                    "query": query,
+                    "fields": [
+                        "title^3",
+                        "content^2",
+                        "type"
+                    ]
                 }
             },
-            limit=3
+            limit=MAX_DOCS
         )
 
         if not results:
@@ -48,7 +55,7 @@ def retrieve_context(query: str, intent: str) -> str:
             for r in results
         )
 
-    # ---------------- PRODUCT / BUYING ----------------
+    # 🛒 SPECIFIC PRODUCT SEARCH (SKU-level, optional)
     results = search_opensearch(
         index="frono_products",
         query={
