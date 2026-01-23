@@ -1,0 +1,381 @@
+<div id="frono-widget-container">
+  
+  <button id="frono-launcher" onclick="toggleChat()">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+    </svg>
+  </button>
+
+  <div id="frono-chat" class="hidden">
+    <div id="chat-header">
+      <span>Chat with Frono</span>
+      <button class="close-btn" onclick="toggleChat()">×</button>
+    </div>
+
+    <div id="chat-body">
+      <div class="message bot">Hi! 👋 How can I help you with our products today?</div>
+    </div>
+
+    <div id="typing-indicator" class="hidden">
+      <span>•</span><span>•</span><span>•</span>
+    </div>
+
+    <div id="chat-input-area">
+      <input
+        type="text"
+        id="chat-text"
+        placeholder="Type a message..."
+        autocomplete="off"
+      />
+      <button id="send-btn" onclick="handleUserSend()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  /* --- Containers --- */
+  #frono-widget-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9999;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  /* --- Launcher Button --- */
+  #frono-launcher {
+    width: 60px;
+    height: 60px;
+    background: #000;
+    color: #fff;
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s;
+  }
+  #frono-launcher:hover { transform: scale(1.05); }
+
+  /* --- Chat Window --- */
+  #frono-chat {
+    position: absolute;
+    bottom: 80px;
+    right: 0;
+    width: 350px;
+    height: 500px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    opacity: 1;
+    transform: translateY(0);
+    transition: all 0.3s ease;
+  }
+
+  /* Hidden State */
+  #frono-chat.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(20px);
+  }
+
+  /* --- Header --- */
+  #chat-header {
+    background: #000;
+    color: #fff;
+    padding: 16px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .close-btn {
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 24px;
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  /* --- Body --- */
+  #chat-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    background: #f4f4f4;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* --- Messages --- */
+  .message {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 18px;
+    font-size: 14px;
+    line-height: 1.4;
+    word-wrap: break-word;
+  }
+  .message.user {
+    align-self: flex-end;
+    background: #000;
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .message.bot {
+    align-self: flex-start;
+    background: #fff;
+    color: #333;
+    border: 1px solid #e0e0e0;
+    border-bottom-left-radius: 4px;
+  }
+
+  /* --- Typing Indicator --- */
+  #typing-indicator {
+    padding: 8px 16px;
+    background: #fff;
+    align-self: flex-start;
+    border-radius: 18px;
+    border: 1px solid #e0e0e0;
+    margin-left: 16px;
+    margin-bottom: 10px;
+    display: flex;
+    gap: 4px;
+    width: fit-content;
+  }
+  #typing-indicator.hidden { display: none; }
+  
+  #typing-indicator span {
+    display: block;
+    width: 6px;
+    height: 6px;
+    background: #888;
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out both;
+  }
+  #typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+  #typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+  
+  @keyframes bounce {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+  }
+
+  /* --- Input Area --- */
+  #chat-input-area {
+    padding: 12px;
+    background: #fff;
+    border-top: 1px solid #eee;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #chat-text {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    outline: none;
+    font-size: 14px;
+    transition: border-color 0.2s;
+  }
+  #chat-text:focus { border-color: #000; }
+  
+  #send-btn {
+    background: #000;
+    color: #fff;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+  }
+  #send-btn:hover { background: #333; }
+
+  /* --- Mobile Optimization --- */
+  @media (max-width: 480px) {
+    #frono-chat {
+      bottom: 0;
+      right: 0;
+      width: 100%;
+      height: 100%;
+      border-radius: 0;
+    }
+    #frono-launcher { display: none; } /* Or move it */
+    #frono-chat.hidden { transform: translateY(100%); }
+  }
+</style>
+
+<script>
+  /* ================= CONFIG ================= */
+  const CHAT_STREAM_POST = "http://127.0.0.1:8000/chat/stream";
+  const CHAT_STREAM_EVENTS = "http://127.0.0.1:8000/chat/stream/events";
+  const LEAD_API = "http://127.0.0.1:8000/lead";
+
+  let awaitingEmail = false;
+  let eventSource = null;
+  let currentBotMessageDiv = null;
+
+  /* ================= UI CONTROLS ================= */
+  function toggleChat() {
+    const chat = document.getElementById("frono-chat");
+    const launcher = document.getElementById("frono-launcher");
+    
+    if (chat.classList.contains("hidden")) {
+      chat.classList.remove("hidden");
+      launcher.style.display = "none"; // Hide launcher when open
+      setTimeout(() => document.getElementById("chat-text").focus(), 100);
+    } else {
+      chat.classList.add("hidden");
+      launcher.style.display = "flex";
+    }
+  }
+
+  function scrollToBottom() {
+    const body = document.getElementById("chat-body");
+    body.scrollTop = body.scrollHeight;
+  }
+
+  /* ================= MESSAGE HANDLING ================= */
+  function appendMessage(text, sender) {
+    const div = document.createElement("div");
+    div.className = "message " + sender;
+    div.textContent = text;
+    
+    document.getElementById("chat-body").appendChild(div);
+    scrollToBottom();
+    return div;
+  }
+
+  function showTyping(show) {
+    const indicator = document.getElementById("typing-indicator");
+    if (show) {
+      indicator.classList.remove("hidden");
+      scrollToBottom();
+    } else {
+      indicator.classList.add("hidden");
+    }
+  }
+
+  /* ================= MAIN LOGIC ================= */
+  function handleUserSend() {
+    const input = document.getElementById("chat-text");
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = "";
+    appendMessage(text, "user");
+
+    // LEAD CAPTURE
+    if (awaitingEmail) {
+      if (isValidEmail(text)) {
+        submitLead(text);
+        awaitingEmail = false;
+      } else {
+        appendMessage("That doesn't look like a valid email. Please try again.", "bot");
+      }
+      return;
+    }
+
+    // NORMAL CHAT
+    showTyping(true);
+    streamResponse(text);
+  }
+
+  function streamResponse(prompt) {
+    // 1. Send Prompt
+    fetch(CHAT_STREAM_POST, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt })
+    })
+    .catch(err => {
+      console.error("Post Error:", err);
+      showTyping(false);
+      appendMessage("⚠️ Network error. Please try again.", "bot");
+    });
+
+    // 2. Open Stream
+    // Close existing stream if open to prevent duplicates
+    if (eventSource) eventSource.close();
+
+    eventSource = new EventSource(CHAT_STREAM_EVENTS);
+
+    // Create a placeholder div for the incoming stream
+    let isFirstChunk = true;
+
+    eventSource.onmessage = function (event) {
+      if (isFirstChunk) {
+        showTyping(false); // Hide dots
+        currentBotMessageDiv = appendMessage("", "bot"); // Create bubble
+        isFirstChunk = false;
+      }
+      currentBotMessageDiv.textContent += event.data;
+      scrollToBottom();
+    };
+
+    eventSource.addEventListener("end", function () {
+      eventSource.close();
+      eventSource = null;
+    });
+
+    eventSource.onerror = function () {
+      if(isFirstChunk) {
+         // If we error before getting any data
+         showTyping(false);
+         // appendMessage("⚠️ Connection lost.", "bot");
+      }
+      eventSource.close();
+    };
+  }
+
+  /* ================= UTILS ================= */
+  function submitLead(email) {
+    showTyping(true);
+    fetch(LEAD_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: email,
+        intent: "BUYING",
+        lead_score: 70,
+        consent: true,
+        source: "shopify_chat"
+      })
+    })
+    .then(() => {
+      showTyping(false);
+      appendMessage("Thanks! We'll be in touch shortly.", "bot");
+    })
+    .catch(() => {
+      showTyping(false);
+      appendMessage("Something went wrong saving your email.", "bot");
+    });
+  }
+
+  function isValidEmail(email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  }
+
+  // Handle Enter Key
+  document.getElementById("chat-text").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") handleUserSend();
+  });
+</script>
