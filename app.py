@@ -163,43 +163,37 @@ def capture_lead(
 @app.post("/chat/stream")
 def chat_stream(req: PromptRequest):
     intent = detect_intent(req.prompt)
+    
+    # 1. ALWAYS retrieve context (Even for Browsing!)
+    context = retrieve_context(req.prompt, intent)
 
-    # Browsing intent
+    # 2. Build Prompt
+    
     if intent == "BROWSING":
-        for token in llama.stream(
-            prompt=(
-                "The user is browsing without a clear goal.\n"
-                "Politely ask one clarifying question.\n\n"
-                f"User: {req.prompt}"
-            ),
-            system_prompt=STRICT_SYSTEM_PROMPT
-        ):
-            stream_queue.put(token)
+        # New "Conversational" Prompt
+        final_prompt = (
+            "You are a friendly shop assistant for Frono.uk.\n"
+            f"Context: {context}\n"
+            "The user said hello or is browsing. "
+            "Reply warmly and briefly. Mention ONE popular category (like Garden or Christmas) "
+            "as an example, then ask what they are looking for today.\n"
+            "Keep it under 2 sentences.\n"
+            f"User: {req.prompt}"
+        )
+    else:
+        # Standard RAG prompt
+        final_prompt = build_prompt(
+            user_message=req.prompt,
+            context=context,
+            intent=intent
+        )
 
-        stream_queue.put("__END__")
-        return {"status": "started"}
-
-    # Non-browsing (RAG)
-    context = retrieve_context(
-        query=req.prompt,
-        intent=intent
-    )
-
-    final_prompt = build_prompt(
-        user_message=req.prompt,
-        context=context,
-        intent=intent
-    )
-
-    for token in llama.stream(
-        prompt=final_prompt,
-        system_prompt=STRICT_SYSTEM_PROMPT
-    ):
+    # 3. Stream Response
+    for token in llama.stream(prompt=final_prompt, system_prompt=STRICT_SYSTEM_PROMPT):
         stream_queue.put(token)
 
     stream_queue.put("__END__")
     return {"status": "started"}
-
 
 @app.get("/chat/stream/events")
 def chat_stream_events():

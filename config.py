@@ -25,3 +25,18 @@ FROM_EMAIL = "Frono <no-reply@frono.uk>"
 
 # Internal notification
 SALES_EMAIL = "sales@frono.uk"
+
+# ... existing config ...
+
+# Fallback context if search fails
+# Fallback context if search fails
+STORE_SUMMARY = (
+    "Frono.uk is a home and lifestyle store based in the UK. "
+    "We focus on making your home cozy and your garden beautiful. "
+    "Our key collections are: "
+    "- Garden & Outdoor (Rattan furniture, Hot Tubs, Gazebos). "
+    "- Seasonal Heating (Energy-efficient heaters). "
+    "- Christmas Shop (Trees, Lights, and Decor). "
+    "We do not sell electronics or fashion. "
+    "If asked about stock, say you can check the specific category."
+)

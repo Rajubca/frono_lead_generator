@@ -26,13 +26,12 @@ class LLaMAClient:
             "system": system_prompt or DEFAULT_SYSTEM_PROMPT,
             "stream": stream,
             "options": {
-                "num_predict": 120,
-                "temperature": 0.2,
+                "num_predict": 300,       # <--- CHANGED from 120 to 300
+                "temperature": 0.3,       # Slightly higher for better flow
                 "top_p": 0.9,
                 "repeat_penalty": 1.1
             }
         }
-
     # -----------------------------
     # STANDARD (NON-STREAMING)
     # -----------------------------
