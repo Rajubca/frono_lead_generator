@@ -11,24 +11,10 @@ def _trim(text: str) -> str:
 def retrieve_context(query: str, intent: str) -> str:
     q = query.lower()
 
-    # 🔒 FORCE SITE FACTS FOR BRAND / CATEGORIES / PRODUCT RANGE
     site_fact_triggers = [
-        "frono",
-        "about",
-        "sell",
-        "product",
-        "products",
-        "category",
-        "categories",
-        "range",
-        "christmas",
-        "seasonal",
-        "heating",
-        "garden",
-        "decor",
-        "decoration",
-        "tree",
-        "lights"
+        "frono", "about", "sell", "product", "products",
+        "category", "categories", "range",
+        "christmas", "seasonal", "heating", "garden"
     ]
 
     if intent in {"ABOUT_BRAND", "GENERAL", "PRODUCT_INFO"} or any(k in q for k in site_fact_triggers):
@@ -37,41 +23,19 @@ def retrieve_context(query: str, intent: str) -> str:
             query={
                 "multi_match": {
                     "query": query,
-                    "fields": [
-                        "title^3",
-                        "content^2",
-                        "type"
-                    ]
+                    "fields": ["title^3", "content^2", "type"]
                 }
             },
-            limit=MAX_DOCS
+            limit=5
         )
 
         if not results:
             return ""
 
+        # Already sorted by score + confidence
         return "\n".join(
-            f"- {r['title']}: {_trim(r['content'])}"
+            f"- {r['title']}: {r['content'][:900]}"
             for r in results
         )
 
-    # 🛒 SPECIFIC PRODUCT SEARCH (SKU-level, optional)
-    results = search_opensearch(
-        index="frono_products",
-        query={
-            "multi_match": {
-                "query": query,
-                "fields": ["title^3", "description"]
-            }
-        },
-        limit=MAX_DOCS
-    )
-
-    if not results:
-        return ""
-
-    return "\n".join(
-        _trim(r.get("description", ""))
-        for r in results
-        if r.get("description")
-    )
+    return ""
