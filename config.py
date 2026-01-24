@@ -15,6 +15,8 @@ LLAMA_API_URL = "http://127.0.0.1:11434/api/generate"
 LLAMA_MODEL = "mistral:latest"
 LLAMA_TIMEOUT = 60
 
+# Bot configuration
+BOT_NAME = "Frono BuddyAI"
 
 # SMTP (recommended first)
 SMTP_HOST = "smtp.gmail.com"
