@@ -3,26 +3,39 @@ from llm.llama_client import LLaMAClient
 
 llama = LLaMAClient()
 
-# --- PATTERN DEFINITIONS ---
-
+# --- 1. ACTION PATTERNS (Verbs/Intents) ---
 BUYING_PATTERNS = [
-    r"\b(buy|order|purchase|checkout|price|cost)\b",
-    r"\b(add to cart|place order)\b"
-]
-
-PRODUCT_PATTERNS = [
-    r"\b(feature|spec|detail|difference|compare)\b",
-    r"\b(size|material|color)\b"
+    r"\b(buy|order|purchase|checkout|price|cost|pay)\b",
+    r"\b(add to cart|place order|how much)\b"
 ]
 
 SUPPORT_PATTERNS = [
-    r"\b(return|refund|shipping|delivery|warranty)\b",
-    r"\b(cancel|exchange)\b"
+    r"\b(return|refund|shipping|delivery|warranty|track)\b",
+    r"\b(cancel|exchange|broken|damaged|late|arrive)\b"
 ]
 
-# NEW: Patterns for short follow-up phrases that should trigger RAG, not a greeting
+# --- 2. PRODUCT PATTERNS (Attributes & Nouns) ---
+# Attributes
+PRODUCT_ATTRIBUTES = [
+    r"\b(feature|spec|detail|difference|compare|desc)\b",
+    r"\b(size|material|color|dimension|weight|height|width)\b"
+]
+
+# Nouns (The actual items Frono sells)
+PRODUCT_NOUNS = [
+    r"\b(tree|garland|wreath|bauble|light|decoration|ornament)\b", # Christmas
+    r"\b(heater|radiator|quartz|oil|fan|warm)\b",                   # Heating
+    r"\b(tub|spa|pool|filter|chemical|pump|chlorine)\b",             # Hot Tub
+    r"\b(furniture|sofa|rattan|table|chair|dining|gazebos|parasol)\b", # Garden
+    r"\b(mat|cover|bulb|bow|suit|costume)\b",                        # Misc
+    
+    # <--- ADD THIS LINE HERE:
+    r"\b(category|categories|catalog|catalogue|range|list|products|item|collection)\b" 
+]
+
+# --- 3. CONVERSATION FLOW ---
 CONTINUATION_PATTERNS = [
-    r"\b(more|else|other|next|okay|ok|yes|yeah)\b",
+    r"\b(more|else|other|next|okay|ok|yes|yeah|sure)\b",
     r"\b(continue|go on|anything else)\b"
 ]
 
@@ -38,8 +51,7 @@ def detect_intent(text: str) -> str:
     """
     q = text.lower().strip()
 
-    # 1. 🔒 HARD BRAND OVERRIDE (TOP PRIORITY)
-    # Catches direct questions about identity
+    # 1. 🔒 HARD BRAND OVERRIDE (Identity)
     if (
         q in {"about", "about frono", "tell me about frono", "what is frono", "who are you"}
         or ("frono" in q and any(w in q for w in ["about", "what", "who"]))
@@ -50,22 +62,21 @@ def detect_intent(text: str) -> str:
     if match_patterns(q, BUYING_PATTERNS):
         return "BUYING"
 
-    # 3. 📦 PRODUCT INFORMATION
-    if match_patterns(q, PRODUCT_PATTERNS):
-        return "PRODUCT_INFO"
-
-    # 4. 🛠 SUPPORT / POLICY
+    # 3. 🛠 SUPPORT / POLICY
     if match_patterns(q, SUPPORT_PATTERNS):
         return "SUPPORT"
 
-    # 5. 🔄 CONTINUATION CHECK (The Fix)
-    # If the user says "okay", "any more", "what else", treat it as 
-    # a request for more info (PRODUCT_INFO) instead of a greeting.
+    # 4. 📦 PRODUCT INFORMATION (Nouns & Attributes)
+    # Check if the user named a product (e.g., "oil heater") OR an attribute
+    if match_patterns(q, PRODUCT_NOUNS) or match_patterns(q, PRODUCT_ATTRIBUTES):
+        return "PRODUCT_INFO"
+
+    # 5. 🔄 CONTINUATION CHECK (Fixes "okay what else")
     if match_patterns(q, CONTINUATION_PATTERNS):
         return "PRODUCT_INFO"
 
     # 6. 👀 CASUAL / BROWSING (Short input fallback)
-    # Only returns BROWSING if it wasn't caught by the continuation check above
+    # Only returns BROWSING if no product keyword was found above
     if len(q.split()) <= 3:
         return "BROWSING"
 
@@ -84,13 +95,16 @@ def llm_intent_fallback(message: str) -> str:
         f"Message: {message}"
     )
 
-    # Generate and clean up response
-    result = llama.generate(prompt).upper()
+    try:
+        # Generate and clean up response
+        result = llama.generate(prompt).upper()
 
-    # robust check to find the keyword in the response
-    for intent in ["ABOUT_BRAND", "BUYING", "PRODUCT_INFO", "SUPPORT", "BROWSING"]:
-        if intent in result:
-            return intent
+        for intent in ["ABOUT_BRAND", "BUYING", "PRODUCT_INFO", "SUPPORT", "BROWSING"]:
+            if intent in result:
+                return intent
+                
+    except Exception:
+        pass
 
-    # Default fallback if LLM gets confused
+    # Default fallback if LLM fails or gets confused
     return "BROWSING"

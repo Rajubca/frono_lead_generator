@@ -13,7 +13,7 @@ INDEX_SESSIONS = "frono_sessions"
 LLAMA_MODEL = "mistral:latest"
 LLAMA_API_URL = "http://127.0.0.1:11434/api/generate"
 LLAMA_MODEL = "mistral:latest"
-LLAMA_TIMEOUT = 60
+LLAMA_TIMEOUT = 120
 
 # Bot configuration
 BOT_NAME = "Frono BuddyAI"

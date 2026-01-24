@@ -42,7 +42,7 @@
         /* Status Dot Styles */
         .status-dot {
             width: 8px; height: 8px; border-radius: 50%;
-            background-color: #ccc; /* Default grey */
+            background-color: #ccc; 
             display: inline-block;
             box-shadow: 0 0 4px rgba(255,255,255,0.3);
             transition: background-color 0.3s;
@@ -82,11 +82,18 @@
         #chat-input-area { padding: 12px; background: #fff; border-top: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
         #chat-text { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 20px; outline: none; font-size: 14px; transition: border-color 0.2s; }
         #chat-text:focus { border-color: #000; }
+        
+        /* Disabled State for Input */
+        #chat-text:disabled { background-color: #f9f9f9; cursor: not-allowed; }
+
         #send-btn {
             background: #000; color: #fff; border: none; width: 40px; height: 40px; border-radius: 50%;
             cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;
         }
         #send-btn:hover { background: #333; }
+        
+        /* Disabled State for Button */
+        #send-btn:disabled { background: #ccc; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -120,7 +127,7 @@
 
 <script>
   /* ================= CONFIG ================= */
-  const API_BASE = "http://127.0.0.1:8000"; // Centralized API URL
+  const API_BASE = "http://127.0.0.1:8000"; 
   const CHAT_STREAM_POST = `${API_BASE}/chat/stream`;
   const CHAT_STREAM_EVENTS = `${API_BASE}/chat/stream/events`;
   const LEAD_API = `${API_BASE}/lead`;
@@ -130,33 +137,36 @@
   let eventSource = null;
   let currentBotMessageDiv = null;
   let requestStartTime = 0;
-  let isConnected = false;
 
   /* ================= INIT ================= */
   document.addEventListener("DOMContentLoaded", function() {
       appendMessage("Hi! I'm Frono BuddyAI. 👋 How can I help you today?", "bot");
-      checkConnection(); // Check immediately on load
-      setInterval(checkConnection, 10000); // Check every 10 seconds
+      checkConnection();
+      setInterval(checkConnection, 10000); 
   });
 
-  /* ================= CONNECTION LOGIC ================= */
-  function updateStatus(status) {
-      const dot = document.getElementById("connection-status");
-      dot.className = "status-dot " + status;
+  /* ================= UI HELPERS ================= */
+  
+  // NEW: Locks/Unlocks input
+  function toggleInputState(disabled) {
+      const input = document.getElementById("chat-text");
+      const btn = document.getElementById("send-btn");
       
-      if(status === 'online') {
-          dot.title = "Online";
-          isConnected = true;
-      } else if (status === 'connecting') {
-          dot.title = "Connecting...";
-      } else {
-          dot.title = "Offline";
-          isConnected = false;
+      input.disabled = disabled;
+      btn.disabled = disabled;
+      
+      if (!disabled) {
+          input.focus();
       }
   }
 
+  function updateStatus(status) {
+      const dot = document.getElementById("connection-status");
+      dot.className = "status-dot " + status;
+      dot.title = status === 'online' ? "Online" : (status === 'connecting' ? "Connecting..." : "Offline");
+  }
+
   function checkConnection() {
-      // If we are currently streaming, don't interrupt
       if (eventSource && eventSource.readyState === 1) return;
 
       fetch(HEALTH_API)
@@ -167,7 +177,6 @@
         .catch(() => updateStatus("offline"));
   }
 
-  /* ================= UI CONTROLS ================= */
   function toggleChat() {
     const chat = document.getElementById("frono-chat");
     const launcher = document.getElementById("frono-launcher");
@@ -175,7 +184,7 @@
       chat.classList.remove("hidden");
       launcher.style.display = "none";
       setTimeout(() => document.getElementById("chat-text").focus(), 100);
-      checkConnection(); // Re-check when opened
+      checkConnection();
     } else {
       chat.classList.add("hidden");
       launcher.style.display = "flex";
@@ -225,6 +234,9 @@
     const text = input.value.trim();
     if (!text) return;
 
+    // 1. Lock Input immediately
+    toggleInputState(true);
+
     input.value = "";
     appendMessage(text, "user");
 
@@ -235,13 +247,14 @@
             awaitingEmail = false;
         } else {
             appendMessage("That doesn't look like a valid email.", "bot");
+            toggleInputState(false); // Unlock if validation fails
         }
         return;
     }
 
     // NORMAL CHAT
     requestStartTime = Date.now();
-    updateStatus("connecting"); // Show yellow dot while sending
+    updateStatus("connecting");
     showTyping(true);
     streamResponse(text);
   }
@@ -258,7 +271,8 @@
     .catch(err => {
       console.error("Post Error:", err);
       showTyping(false);
-      updateStatus("offline"); // Just turn dot red, NO ERROR MESSAGE
+      updateStatus("offline");
+      toggleInputState(false); // Unlock on initial error
     });
 
     if (eventSource) eventSource.close();
@@ -267,7 +281,7 @@
     let isFirstChunk = true;
 
     eventSource.onopen = function() {
-        updateStatus("online"); // Connection established
+        updateStatus("online");
     };
 
     eventSource.onmessage = function (event) {
@@ -284,16 +298,18 @@
       }
     };
 
+    // UNLOCK INPUT WHEN FINISHED
     eventSource.addEventListener("end", function () {
       eventSource.close();
       eventSource = null;
+      toggleInputState(false); // <--- UNLOCK HERE
     });
 
     eventSource.onerror = function () {
       if(isFirstChunk) showTyping(false);
       eventSource.close();
-      // If error happens mid-stream, we might want to check health
-      checkConnection(); 
+      toggleInputState(false); // <--- UNLOCK HERE ALSO
+      checkConnection();
     };
   }
 
@@ -305,14 +321,24 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: email, intent: "BUYING", lead_score: 70, consent: true })
     })
-    .then(() => { showTyping(false); appendMessage("Thanks! We'll be in touch.", "bot"); })
-    .catch(() => { showTyping(false); appendMessage("Something went wrong.", "bot"); });
+    .then(() => { 
+        showTyping(false); 
+        appendMessage("Thanks! We'll be in touch.", "bot"); 
+        toggleInputState(false); 
+    })
+    .catch(() => { 
+        showTyping(false); 
+        appendMessage("Something went wrong.", "bot"); 
+        toggleInputState(false); 
+    });
   }
 
   function isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
 
   document.getElementById("chat-text").addEventListener("keydown", function(e) {
-    if (e.key === "Enter") handleUserSend();
+    if (e.key === "Enter" && !document.getElementById("chat-text").disabled) {
+        handleUserSend();
+    }
   });
 </script>
 
