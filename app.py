@@ -222,6 +222,8 @@ def await_client_disconnect(request: Request):
 # ---------------------------------------------------
 # LEAD CAPTURE + EMAIL AUTOMATION
 # ---------------------------------------------------
+from fastapi import BackgroundTasks
+
 @app.post("/lead", response_model=LeadResponse)
 def capture_lead(
     lead: LeadCreate,
@@ -229,8 +231,8 @@ def capture_lead(
 ):
     result = create_lead(lead.dict())
 
-    # EMAIL AUTOMATION (NON-BLOCKING)
-    if lead.email and lead.consent:
+    # Optional: email automation
+    if lead.consent:
         background_tasks.add_task(
             send_email,
             lead.email,
