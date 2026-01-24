@@ -7,253 +7,175 @@
     <style>
         /* --- Containers --- */
         #frono-widget-container {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 9999;
+            position: fixed; bottom: 20px; right: 20px; z-index: 9999;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
 
-        /* --- Launcher Button --- */
+        /* --- Launcher --- */
         #frono-launcher {
-            width: 60px;
-            height: 60px;
-            background: #000;
-            color: #fff;
-            border-radius: 50%;
-            border: none;
-            cursor: pointer;
+            width: 60px; height: 60px; background: #000; color: #fff;
+            border-radius: 50%; border: none; cursor: pointer;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             transition: transform 0.2s;
         }
         #frono-launcher:hover { transform: scale(1.05); }
 
         /* --- Chat Window --- */
         #frono-chat {
-            position: absolute;
-            bottom: 80px;
-            right: 0;
-            width: 350px;
-            height: 500px;
-            background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            opacity: 1;
-            transform: translateY(0);
-            transition: all 0.3s ease;
+            position: absolute; bottom: 80px; right: 0;
+            width: 350px; height: 500px; background: #fff;
+            border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+            display: flex; flex-direction: column; overflow: hidden;
+            opacity: 1; transform: translateY(0); transition: all 0.3s ease;
         }
+        #frono-chat.hidden { opacity: 0; pointer-events: none; transform: translateY(20px); }
 
-        /* Hidden State */
-        #frono-chat.hidden {
-            opacity: 0;
-            pointer-events: none;
-            transform: translateY(20px);
-        }
-
-        /* --- Header --- */
+        /* --- Header with Status --- */
         #chat-header {
-            background: #000;
-            color: #fff;
-            padding: 16px;
-            font-weight: 600;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            background: #000; color: #fff; padding: 16px;
+            font-weight: 600; display: flex; justify-content: space-between; align-items: center;
         }
-        .close-btn {
-            background: none;
-            border: none;
-            color: #fff;
-            font-size: 24px;
-            cursor: pointer;
-            line-height: 1;
+        
+        .header-title-group { display: flex; align-items: center; gap: 8px; }
+        
+        /* Status Dot Styles */
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background-color: #ccc; /* Default grey */
+            display: inline-block;
+            box-shadow: 0 0 4px rgba(255,255,255,0.3);
+            transition: background-color 0.3s;
         }
+        .status-dot.online { background-color: #2ecc71; } /* Green */
+        .status-dot.offline { background-color: #e74c3c; } /* Red */
+        .status-dot.connecting { background-color: #f1c40f; } /* Yellow */
+
+        .close-btn { background: none; border: none; color: #fff; font-size: 24px; cursor: pointer; line-height: 1; }
 
         /* --- Body --- */
-        #chat-body {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px;
-            background: #f4f4f4;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+        #chat-body { flex: 1; overflow-y: auto; padding: 16px; background: #f4f4f4; display: flex; flex-direction: column; gap: 10px; }
 
         /* --- Messages --- */
-        .message {
-            max-width: 80%;
-            padding: 10px 14px;
-            border-radius: 18px;
-            font-size: 14px;
-            line-height: 1.4;
-            word-wrap: break-word;
-        }
-        .message.user {
-            align-self: flex-end;
-            background: #000;
-            color: #fff;
-            border-bottom-right-radius: 4px;
-        }
-        .message.bot {
-            align-self: flex-start;
-            background: #fff;
-            color: #333;
-            border: 1px solid #e0e0e0;
-            border-bottom-left-radius: 4px;
-        }
+        .message { max-width: 80%; padding: 10px 14px; border-radius: 18px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
+        .message.user { align-self: flex-end; background: #000; color: #fff; border-bottom-right-radius: 4px; }
+        .message.bot { align-self: flex-start; background: #fff; color: #333; border: 1px solid #e0e0e0; border-bottom-left-radius: 4px; }
+
+        .msg-time { display: block; font-size: 10px; margin-top: 6px; opacity: 0.7; text-align: right; }
 
         /* --- Typing Indicator --- */
         #typing-indicator {
-            padding: 8px 16px;
-            background: #fff;
-            align-self: flex-start;
-            border-radius: 18px;
-            border: 1px solid #e0e0e0;
-            margin-left: 16px;
-            margin-bottom: 10px;
-            display: flex;
-            gap: 4px;
-            width: fit-content;
+            padding: 8px 16px; background: #fff; align-self: flex-start;
+            border-radius: 18px; border: 1px solid #e0e0e0; margin-left: 16px; margin-bottom: 10px;
+            display: flex; gap: 4px; width: fit-content;
         }
         #typing-indicator.hidden { display: none; }
-        
         #typing-indicator span {
-            display: block;
-            width: 6px;
-            height: 6px;
-            background: #888;
-            border-radius: 50%;
+            display: block; width: 6px; height: 6px; background: #888; border-radius: 50%;
             animation: bounce 1.4s infinite ease-in-out both;
         }
         #typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
         #typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
-        
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1); }
-        }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
 
         /* --- Input Area --- */
-        #chat-input-area {
-            padding: 12px;
-            background: #fff;
-            border-top: 1px solid #eee;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        #chat-text {
-            flex: 1;
-            padding: 10px 12px;
-            border: 1px solid #ddd;
-            border-radius: 20px;
-            outline: none;
-            font-size: 14px;
-            transition: border-color 0.2s;
-        }
+        #chat-input-area { padding: 12px; background: #fff; border-top: 1px solid #eee; display: flex; align-items: center; gap: 8px; }
+        #chat-text { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 20px; outline: none; font-size: 14px; transition: border-color 0.2s; }
         #chat-text:focus { border-color: #000; }
-        
         #send-btn {
-            background: #000;
-            color: #fff;
-            border: none;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s;
+            background: #000; color: #fff; border: none; width: 40px; height: 40px; border-radius: 50%;
+            cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;
         }
         #send-btn:hover { background: #333; }
-
-        /* --- Mobile Optimization --- */
-        @media (max-width: 480px) {
-            #frono-chat {
-                bottom: 0;
-                right: 0;
-                width: 100%;
-                height: 100%;
-                border-radius: 0;
-            }
-            #frono-launcher { display: none; }
-            #frono-chat.hidden { transform: translateY(100%); }
-        }
     </style>
 </head>
 <body>
 
 <div id="frono-widget-container">
-  
   <button id="frono-launcher" onclick="toggleChat()">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-    </svg>
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
   </button>
 
   <div id="frono-chat" class="hidden">
     <div id="chat-header">
-      <span>Chat with Frono BuddyAI</span> <button class="close-btn" onclick="toggleChat()">×</button>
-    </div>
-
-    <div id="chat-body">
+      <div class="header-title-group">
+        <span id="connection-status" class="status-dot offline" title="Disconnected"></span>
+        <span>Frono BuddyAI</span>
       </div>
-
-    <div id="typing-indicator" class="hidden">
-      <span>•</span><span>•</span><span>•</span>
+      <button class="close-btn" onclick="toggleChat()">×</button>
     </div>
+
+    <div id="chat-body"></div>
+
+    <div id="typing-indicator" class="hidden"><span>•</span><span>•</span><span>•</span></div>
 
     <div id="chat-input-area">
-      <input
-        type="text"
-        id="chat-text"
-        placeholder="Type a message..."
-        autocomplete="off"
-      />
+      <input type="text" id="chat-text" placeholder="Type a message..." autocomplete="off" />
       <button id="send-btn" onclick="handleUserSend()">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
       </button>
     </div>
   </div>
-
 </div>
 
 <script>
   /* ================= CONFIG ================= */
-  const CHAT_STREAM_POST = "http://127.0.0.1:8000/chat/stream";
-  const CHAT_STREAM_EVENTS = "http://127.0.0.1:8000/chat/stream/events";
-  const LEAD_API = "http://127.0.0.1:8000/lead";
+  const API_BASE = "http://127.0.0.1:8000"; // Centralized API URL
+  const CHAT_STREAM_POST = `${API_BASE}/chat/stream`;
+  const CHAT_STREAM_EVENTS = `${API_BASE}/chat/stream/events`;
+  const LEAD_API = `${API_BASE}/lead`;
+  const HEALTH_API = `${API_BASE}/health`;
 
   let awaitingEmail = false;
   let eventSource = null;
   let currentBotMessageDiv = null;
+  let requestStartTime = 0;
+  let isConnected = false;
 
-  /* ================= INITIALIZATION ================= */
-  // We wrap this in DOMContentLoaded to ensure the HTML exists before we try to write to it
+  /* ================= INIT ================= */
   document.addEventListener("DOMContentLoaded", function() {
       appendMessage("Hi! I'm Frono BuddyAI. 👋 How can I help you today?", "bot");
+      checkConnection(); // Check immediately on load
+      setInterval(checkConnection, 10000); // Check every 10 seconds
   });
+
+  /* ================= CONNECTION LOGIC ================= */
+  function updateStatus(status) {
+      const dot = document.getElementById("connection-status");
+      dot.className = "status-dot " + status;
+      
+      if(status === 'online') {
+          dot.title = "Online";
+          isConnected = true;
+      } else if (status === 'connecting') {
+          dot.title = "Connecting...";
+      } else {
+          dot.title = "Offline";
+          isConnected = false;
+      }
+  }
+
+  function checkConnection() {
+      // If we are currently streaming, don't interrupt
+      if (eventSource && eventSource.readyState === 1) return;
+
+      fetch(HEALTH_API)
+        .then(res => {
+            if (res.ok) updateStatus("online");
+            else updateStatus("offline");
+        })
+        .catch(() => updateStatus("offline"));
+  }
 
   /* ================= UI CONTROLS ================= */
   function toggleChat() {
     const chat = document.getElementById("frono-chat");
     const launcher = document.getElementById("frono-launcher");
-    
     if (chat.classList.contains("hidden")) {
       chat.classList.remove("hidden");
       launcher.style.display = "none";
       setTimeout(() => document.getElementById("chat-text").focus(), 100);
+      checkConnection(); // Re-check when opened
     } else {
       chat.classList.add("hidden");
       launcher.style.display = "flex";
@@ -265,33 +187,39 @@
     body.scrollTop = body.scrollHeight;
   }
 
-  /* ================= MESSAGE HANDLING ================= */
-  function appendMessage(text, sender) {
+  function appendMessage(text, sender, latency = null) {
     const body = document.getElementById("chat-body");
-    if (!body) return null; // Safety check
+    if (!body) return null;
 
     const div = document.createElement("div");
     div.className = "message " + sender;
-    div.textContent = text;
     
+    const textNode = document.createElement("div");
+    textNode.textContent = text;
+    div.appendChild(textNode);
+
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "msg-time";
+    const now = new Date();
+    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    if (latency) timeSpan.textContent = `${timeString} • ${latency}s delay`;
+    else timeSpan.textContent = timeString;
+
+    div.appendChild(timeSpan);
     body.appendChild(div);
     scrollToBottom();
-    return div;
+    return textNode; 
   }
 
   function showTyping(show) {
     const indicator = document.getElementById("typing-indicator");
     if (!indicator) return;
-
-    if (show) {
-      indicator.classList.remove("hidden");
-      scrollToBottom();
-    } else {
-      indicator.classList.add("hidden");
-    }
+    if (show) { indicator.classList.remove("hidden"); scrollToBottom(); } 
+    else { indicator.classList.add("hidden"); }
   }
 
-  /* ================= MAIN LOGIC ================= */
+  /* ================= SEND LOGIC ================= */
   function handleUserSend() {
     const input = document.getElementById("chat-text");
     const text = input.value.trim();
@@ -300,46 +228,54 @@
     input.value = "";
     appendMessage(text, "user");
 
-    // LEAD CAPTURE LOGIC
+    // LEAD CAPTURE
     if (awaitingEmail) {
-      if (isValidEmail(text)) {
-        submitLead(text);
-        awaitingEmail = false;
-      } else {
-        appendMessage("That doesn't look like a valid email. Please try again.", "bot");
-      }
-      return;
+        if (isValidEmail(text)) {
+            submitLead(text);
+            awaitingEmail = false;
+        } else {
+            appendMessage("That doesn't look like a valid email.", "bot");
+        }
+        return;
     }
 
     // NORMAL CHAT
+    requestStartTime = Date.now();
+    updateStatus("connecting"); // Show yellow dot while sending
     showTyping(true);
     streamResponse(text);
   }
 
   function streamResponse(prompt) {
-    // 1. Send Prompt
     fetch(CHAT_STREAM_POST, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt })
     })
+    .then(response => {
+        if (!response.ok) throw new Error("Server Error");
+    })
     .catch(err => {
       console.error("Post Error:", err);
       showTyping(false);
-      appendMessage("⚠️ Network error. Please try again.", "bot");
+      updateStatus("offline"); // Just turn dot red, NO ERROR MESSAGE
     });
 
-    // 2. Open Stream
     if (eventSource) eventSource.close();
-
     eventSource = new EventSource(CHAT_STREAM_EVENTS);
 
     let isFirstChunk = true;
 
+    eventSource.onopen = function() {
+        updateStatus("online"); // Connection established
+    };
+
     eventSource.onmessage = function (event) {
       if (isFirstChunk) {
-        showTyping(false); 
-        currentBotMessageDiv = appendMessage("", "bot"); 
+        showTyping(false);
+        const latencyMs = Date.now() - requestStartTime;
+        const latencySec = (latencyMs / 1000).toFixed(2);
+        currentBotMessageDiv = appendMessage("", "bot", latencySec);
         isFirstChunk = false;
       }
       if (currentBotMessageDiv) {
@@ -354,10 +290,10 @@
     });
 
     eventSource.onerror = function () {
-      if(isFirstChunk) {
-         showTyping(false);
-      }
+      if(isFirstChunk) showTyping(false);
       eventSource.close();
+      // If error happens mid-stream, we might want to check health
+      checkConnection(); 
     };
   }
 
@@ -367,29 +303,14 @@
     fetch(LEAD_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: email,
-        intent: "BUYING",
-        lead_score: 70,
-        consent: true,
-        source: "shopify_chat"
-      })
+      body: JSON.stringify({ email: email, intent: "BUYING", lead_score: 70, consent: true })
     })
-    .then(() => {
-      showTyping(false);
-      appendMessage("Thanks! We'll be in touch shortly.", "bot");
-    })
-    .catch(() => {
-      showTyping(false);
-      appendMessage("Something went wrong saving your email.", "bot");
-    });
+    .then(() => { showTyping(false); appendMessage("Thanks! We'll be in touch.", "bot"); })
+    .catch(() => { showTyping(false); appendMessage("Something went wrong.", "bot"); });
   }
 
-  function isValidEmail(email) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-  }
+  function isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
 
-  // Handle Enter Key
   document.getElementById("chat-text").addEventListener("keydown", function(e) {
     if (e.key === "Enter") handleUserSend();
   });
