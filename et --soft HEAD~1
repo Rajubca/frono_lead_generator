@@ -1,0 +1,12 @@
+[33mcfc3019[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mdevelopment[m[33m)[m added Groq api for faster response
+[33m171c1cd[m added Groq api for faster response
+[33m0c05353[m[33m ([m[1;31morigin/development[m[33m)[m added multiple browser support
+[33m903ee3f[m Updated intent detection for time out problem
+[33ma8530ca[m Added greetings for multiple / single correction
+[33m4d2fe34[m Added bot Name
+[33m57b5c09[m With facility of smoothness V1
+[33m412e2c9[m Track Temporary folder
+[33mf1078fd[m with all working our indexes created in opensearch and queries dump
+[33mdfb231e[m with all working our indexes created in opensearch
+[33m425ef30[m with readme.md
+[33m9e95cb6[m[33m ([m[1;32mmain[m[33m)[m working without index data perfectly(randomly)

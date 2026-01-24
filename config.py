@@ -15,6 +15,10 @@ LLAMA_API_URL = "http://127.0.0.1:11434/api/generate"
 LLAMA_MODEL = "mistral:latest"
 LLAMA_TIMEOUT = 120
 
+# GROQ Configuration (Fastest Inference)
+GROQ_API_KEY = ""  # <--- PASTE YOUR KEY HERE
+GROQ_MODEL = "llama-3.3-70b-versatile"  # Very fast and smart model
+
 # Bot configuration
 BOT_NAME = "Frono BuddyAI"
 

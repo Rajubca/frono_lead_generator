@@ -1,5 +1,6 @@
 import uuid
 import time
+import re
 from queue import Queue
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +18,7 @@ from search.leads_repo import create_lead
 from services.email_service import send_email
 from services.email_templates import customer_confirmation_email, sales_notification_email
 from config import SALES_EMAIL, BOT_NAME, STRICT_SYSTEM_PROMPT
-
+from llm.groq_client import GroqClient # WAS: from llm.llama_client import LLaMAClient
 # ---------------------------------------------------
 # GLOBAL STORE FOR MULTI-USER QUEUES
 # ---------------------------------------------------
@@ -38,7 +39,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-llama = LLaMAClient()
+# llama = LLaMAClient()
+llama = GroqClient()
 
 # ---------------------------------------------------
 # UPDATED SCHEMA (Now requires session_id)
@@ -117,6 +119,8 @@ def chat(req: PromptRequest):
 # ---------------------------------------------------
 # CHAT STREAM ENDPOINT (WRITES TO SPECIFIC QUEUE)
 # ---------------------------------------------------
+# In app.py
+
 @app.post("/chat/stream")
 def chat_stream(req: PromptRequest):
     session_id = req.session_id
@@ -130,7 +134,15 @@ def chat_stream(req: PromptRequest):
     # 1. Detect Intent
     intent = detect_intent(req.prompt)
     
-    # 2. Retrieve Context
+    # --- NEW: Handle "Okay/Thanks/Bye" Instantly ---
+    if intent == "CLOSING":
+        reply = "You're welcome! Feel free to ask if you need anything else. 👋"
+        user_queue.put(reply)
+        user_queue.put("__END__")
+        return {"status": "finished_early"}
+    # -----------------------------------------------
+
+    # 2. Retrieve Context (Only runs if not CLOSING)
     context = retrieve_context(req.prompt, intent)
 
     # 3. Build Prompt based on Intent
@@ -159,6 +171,7 @@ def chat_stream(req: PromptRequest):
 
     user_queue.put("__END__")
     return {"status": "started"}
+
 
 # ---------------------------------------------------
 # SSE ENDPOINT (READS FROM SPECIFIC QUEUE)

@@ -22,3 +22,4 @@ class LeadCreate(BaseModel):
 class LeadResponse(BaseModel):
     id: str
     created_at: datetime
+
