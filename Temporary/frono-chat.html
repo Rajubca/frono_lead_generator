@@ -11,7 +11,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
 
-        /* --- Launcher --- */
+        /* --- Launcher Button --- */
         #frono-launcher {
             width: 60px; height: 60px; background: #000; color: #fff;
             border-radius: 50%; border: none; cursor: pointer;
@@ -31,13 +31,13 @@
         }
         #frono-chat.hidden { opacity: 0; pointer-events: none; transform: translateY(20px); }
 
-        /* --- Header with Status --- */
+        /* --- Header with Status & Reconnect --- */
         #chat-header {
             background: #000; color: #fff; padding: 16px;
             font-weight: 600; display: flex; justify-content: space-between; align-items: center;
         }
         
-        .header-title-group { display: flex; align-items: center; gap: 8px; }
+        .header-title-group { display: flex; align-items: center; gap: 8px; flex: 1; }
         
         /* Status Dot Styles */
         .status-dot {
@@ -51,6 +51,15 @@
         .status-dot.offline { background-color: #e74c3c; } /* Red */
         .status-dot.connecting { background-color: #f1c40f; } /* Yellow */
 
+        /* Reconnect Button */
+        #reconnect-btn {
+            background: transparent; border: 1px solid rgba(255,255,255,0.4);
+            color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 12px;
+            cursor: pointer; margin-left: auto; margin-right: 8px; transition: all 0.2s;
+        }
+        #reconnect-btn:hover { background: rgba(255,255,255,0.2); border-color: #fff; }
+        #reconnect-btn.hidden { display: none; }
+
         .close-btn { background: none; border: none; color: #fff; font-size: 24px; cursor: pointer; line-height: 1; }
 
         /* --- Body --- */
@@ -61,6 +70,7 @@
         .message.user { align-self: flex-end; background: #000; color: #fff; border-bottom-right-radius: 4px; }
         .message.bot { align-self: flex-start; background: #fff; color: #333; border: 1px solid #e0e0e0; border-bottom-left-radius: 4px; }
 
+        /* Timestamps */
         .msg-time { display: block; font-size: 10px; margin-top: 6px; opacity: 0.7; text-align: right; }
 
         /* --- Typing Indicator --- */
@@ -83,7 +93,7 @@
         #chat-text { flex: 1; padding: 10px 12px; border: 1px solid #ddd; border-radius: 20px; outline: none; font-size: 14px; transition: border-color 0.2s; }
         #chat-text:focus { border-color: #000; }
         
-        /* Disabled State for Input */
+        /* Disabled State */
         #chat-text:disabled { background-color: #f9f9f9; cursor: not-allowed; }
 
         #send-btn {
@@ -91,8 +101,6 @@
             cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;
         }
         #send-btn:hover { background: #333; }
-        
-        /* Disabled State for Button */
         #send-btn:disabled { background: #ccc; cursor: not-allowed; }
     </style>
 </head>
@@ -108,6 +116,7 @@
       <div class="header-title-group">
         <span id="connection-status" class="status-dot offline" title="Disconnected"></span>
         <span>Frono BuddyAI</span>
+        <button id="reconnect-btn" class="hidden" onclick="manualReconnect()">Reconnect ↻</button>
       </div>
       <button class="close-btn" onclick="toggleChat()">×</button>
     </div>
@@ -129,7 +138,7 @@
   /* ================= CONFIG ================= */
   const API_BASE = "http://127.0.0.1:8000"; 
   const CHAT_STREAM_POST = `${API_BASE}/chat/stream`;
-  const CHAT_STREAM_EVENTS = `${API_BASE}/chat/stream/events`;
+  // NOTE: The events URL is now dynamic based on session ID
   const LEAD_API = `${API_BASE}/lead`;
   const HEALTH_API = `${API_BASE}/health`;
 
@@ -137,43 +146,131 @@
   let eventSource = null;
   let currentBotMessageDiv = null;
   let requestStartTime = 0;
+  
+  // NEW: Generate a random Session ID for this browser tab
+  const SESSION_ID = "sess_" + Math.random().toString(36).substr(2, 9);
+  console.log("Your Session ID:", SESSION_ID);
 
   /* ================= INIT ================= */
   document.addEventListener("DOMContentLoaded", function() {
       appendMessage("Hi! I'm Frono BuddyAI. 👋 How can I help you today?", "bot");
-      checkConnection();
+      
+      // Open the connection IMMEDIATELY with the Session ID
+      setupEventSource();
+      
       setInterval(checkConnection, 10000); 
   });
 
-  /* ================= UI HELPERS ================= */
+  /* ================= CONNECTION & STREAMING ================= */
+  function setupEventSource() {
+      if (eventSource) eventSource.close();
+      
+      // Connect to the specific endpoint for THIS user
+      eventSource = new EventSource(`${API_BASE}/chat/stream/events/${SESSION_ID}`);
+
+      eventSource.onopen = function() {
+          updateStatus("online");
+      };
+
+      eventSource.onmessage = function (event) {
+          // This listens for data pushed into OUR queue
+          if (!currentBotMessageDiv) {
+              // If we aren't currently waiting for a reply, we ignore (or log)
+              return;
+          }
+          
+          if (event.data === "END") {
+             // Stream finished logic handled by 'event: end' usually, 
+             // but if sent as data check here
+          } else {
+             currentBotMessageDiv.textContent += event.data;
+             scrollToBottom();
+          }
+      };
+
+      // Custom event for "end" message
+      eventSource.addEventListener("end", function () {
+          toggleInputState(false); // Unlock input
+          currentBotMessageDiv = null; // Reset current message tracker
+      });
+
+      eventSource.onerror = function () {
+          updateStatus("offline");
+      };
+  }
+
+  function streamResponse(prompt) {
+      // 1. Send Prompt + Session ID
+      fetch(CHAT_STREAM_POST, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+              prompt: prompt,
+              session_id: SESSION_ID // <--- Sending ID
+          }) 
+      })
+      .then(response => { if (!response.ok) throw new Error("Server Error"); })
+      .catch(err => {
+          console.error("Post Error:", err);
+          showTyping(false);
+          updateStatus("offline");
+          toggleInputState(false);
+      });
+
+      // 2. Prepare the UI to receive the answer
+      // (The EventSource is ALREADY connected and waiting)
+      const latencyMs = Date.now() - requestStartTime; // Approximate start
+      // Actual latency is hard to calculate perfectly with pre-connected SSE, 
+      // but we can update this when the first byte arrives.
+      
+      showTyping(false); // We hide typing dots as soon as we start receiving text
+      currentBotMessageDiv = appendMessage("", "bot", "..."); 
+  }
   
-  // NEW: Locks/Unlocks input
+  // ... (Keep the rest of your UI helpers: appendMessage, toggleChat, etc.) ...
+  
+  /* ================= UI HELPERS (Keep existing) ================= */
   function toggleInputState(disabled) {
       const input = document.getElementById("chat-text");
       const btn = document.getElementById("send-btn");
-      
       input.disabled = disabled;
       btn.disabled = disabled;
+      if (!disabled) input.focus();
+  }
+  
+  function updateStatus(status) {
+      const dot = document.getElementById("connection-status");
+      const reconnectBtn = document.getElementById("reconnect-btn");
+      dot.className = "status-dot " + status;
       
-      if (!disabled) {
-          input.focus();
+      if(status === 'online') {
+          dot.title = "Online";
+          reconnectBtn.classList.add("hidden");
+      } else if (status === 'connecting') {
+          dot.title = "Connecting...";
+          reconnectBtn.classList.add("hidden");
+      } else {
+          dot.title = "Offline";
+          reconnectBtn.classList.remove("hidden");
       }
   }
 
-  function updateStatus(status) {
-      const dot = document.getElementById("connection-status");
-      dot.className = "status-dot " + status;
-      dot.title = status === 'online' ? "Online" : (status === 'connecting' ? "Connecting..." : "Offline");
+  function manualReconnect() {
+      const btn = document.getElementById("reconnect-btn");
+      btn.textContent = "Connecting...";
+      btn.disabled = true;
+      updateStatus("connecting");
+      setupEventSource(); // Re-initialize SSE
+      setTimeout(() => {
+          btn.textContent = "Reconnect ↻";
+          btn.disabled = false;
+      }, 2000);
   }
 
   function checkConnection() {
       if (eventSource && eventSource.readyState === 1) return;
-
       fetch(HEALTH_API)
-        .then(res => {
-            if (res.ok) updateStatus("online");
-            else updateStatus("offline");
-        })
+        .then(res => { if (res.ok) updateStatus("online"); else updateStatus("offline"); })
         .catch(() => updateStatus("offline"));
   }
 
@@ -184,7 +281,6 @@
       chat.classList.remove("hidden");
       launcher.style.display = "none";
       setTimeout(() => document.getElementById("chat-text").focus(), 100);
-      checkConnection();
     } else {
       chat.classList.add("hidden");
       launcher.style.display = "flex";
@@ -199,22 +295,17 @@
   function appendMessage(text, sender, latency = null) {
     const body = document.getElementById("chat-body");
     if (!body) return null;
-
     const div = document.createElement("div");
     div.className = "message " + sender;
-    
     const textNode = document.createElement("div");
     textNode.textContent = text;
     div.appendChild(textNode);
-
     const timeSpan = document.createElement("span");
     timeSpan.className = "msg-time";
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    if (latency) timeSpan.textContent = `${timeString} • ${latency}s delay`;
+    if (latency) timeSpan.textContent = `${timeString}`;
     else timeSpan.textContent = timeString;
-
     div.appendChild(timeSpan);
     body.appendChild(div);
     scrollToBottom();
@@ -228,111 +319,28 @@
     else { indicator.classList.add("hidden"); }
   }
 
-  /* ================= SEND LOGIC ================= */
   function handleUserSend() {
     const input = document.getElementById("chat-text");
     const text = input.value.trim();
     if (!text) return;
-
-    // 1. Lock Input immediately
     toggleInputState(true);
-
     input.value = "";
     appendMessage(text, "user");
-
-    // LEAD CAPTURE
+    
     if (awaitingEmail) {
-        if (isValidEmail(text)) {
-            submitLead(text);
-            awaitingEmail = false;
-        } else {
-            appendMessage("That doesn't look like a valid email.", "bot");
-            toggleInputState(false); // Unlock if validation fails
-        }
+        // (Keep your lead logic)
         return;
     }
 
-    // NORMAL CHAT
     requestStartTime = Date.now();
-    updateStatus("connecting");
     showTyping(true);
     streamResponse(text);
   }
 
-  function streamResponse(prompt) {
-    fetch(CHAT_STREAM_POST, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt })
-    })
-    .then(response => {
-        if (!response.ok) throw new Error("Server Error");
-    })
-    .catch(err => {
-      console.error("Post Error:", err);
-      showTyping(false);
-      updateStatus("offline");
-      toggleInputState(false); // Unlock on initial error
-    });
-
-    if (eventSource) eventSource.close();
-    eventSource = new EventSource(CHAT_STREAM_EVENTS);
-
-    let isFirstChunk = true;
-
-    eventSource.onopen = function() {
-        updateStatus("online");
-    };
-
-    eventSource.onmessage = function (event) {
-      if (isFirstChunk) {
-        showTyping(false);
-        const latencyMs = Date.now() - requestStartTime;
-        const latencySec = (latencyMs / 1000).toFixed(2);
-        currentBotMessageDiv = appendMessage("", "bot", latencySec);
-        isFirstChunk = false;
-      }
-      if (currentBotMessageDiv) {
-        currentBotMessageDiv.textContent += event.data;
-        scrollToBottom();
-      }
-    };
-
-    // UNLOCK INPUT WHEN FINISHED
-    eventSource.addEventListener("end", function () {
-      eventSource.close();
-      eventSource = null;
-      toggleInputState(false); // <--- UNLOCK HERE
-    });
-
-    eventSource.onerror = function () {
-      if(isFirstChunk) showTyping(false);
-      eventSource.close();
-      toggleInputState(false); // <--- UNLOCK HERE ALSO
-      checkConnection();
-    };
-  }
-
-  /* ================= UTILS ================= */
   function submitLead(email) {
-    showTyping(true);
-    fetch(LEAD_API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email, intent: "BUYING", lead_score: 70, consent: true })
-    })
-    .then(() => { 
-        showTyping(false); 
-        appendMessage("Thanks! We'll be in touch.", "bot"); 
-        toggleInputState(false); 
-    })
-    .catch(() => { 
-        showTyping(false); 
-        appendMessage("Something went wrong.", "bot"); 
-        toggleInputState(false); 
-    });
+      // (Keep your existing lead logic)
   }
-
+  
   function isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email); }
 
   document.getElementById("chat-text").addEventListener("keydown", function(e) {

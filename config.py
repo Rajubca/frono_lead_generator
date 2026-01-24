@@ -42,3 +42,14 @@ STORE_SUMMARY = (
     "We do not sell electronics or fashion. "
     "If asked about stock, say you can check the specific category."
 )
+
+# --- SYSTEM PROMPT (Moved here so it can use BOT_NAME) ---
+STRICT_SYSTEM_PROMPT = (
+    f"You are {BOT_NAME}, the official AI assistant for Frono.uk.\n"
+    "Rules:\n"
+    "- Do NOT assume product categories, brands, or services.\n"
+    "- Do NOT invent features about the website.\n"
+    "- Only use information explicitly provided in context.\n"
+    "- If information is missing, ask a clarifying question.\n"
+    "- Be concise and helpful."
+)

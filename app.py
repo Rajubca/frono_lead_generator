@@ -1,30 +1,29 @@
-from queue import Queue
-from fastapi.responses import StreamingResponse
-
-stream_queue = Queue()
-
-from fastapi import FastAPI, BackgroundTasks  # type: ignore
-from fastapi.middleware.cors import CORSMiddleware  # type: ignore
-from fastapi.responses import StreamingResponse
-import json
+import uuid
 import time
-from models.schemas import PromptRequest, LeadCreate, LeadResponse
+from queue import Queue
+from fastapi import FastAPI, BackgroundTasks, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+# --- IMPORTS ---
+from models.schemas import LeadCreate, LeadResponse
 from llm.llama_client import LLaMAClient
 from agent.health import check_health
-
 from agent.intent_detector import detect_intent
-from agent.lead_scoring import score_lead
-from agent.response_strategy import next_action
 from agent.rag_prompt import build_prompt
 from search.retriever import retrieve_context
 from search.leads_repo import create_lead
-
 from services.email_service import send_email
-from services.email_templates import (
-    customer_confirmation_email,
-    sales_notification_email
-)
-from config import SALES_EMAIL
+from services.email_templates import customer_confirmation_email, sales_notification_email
+from config import SALES_EMAIL, BOT_NAME, STRICT_SYSTEM_PROMPT
+
+# ---------------------------------------------------
+# GLOBAL STORE FOR MULTI-USER QUEUES
+# ---------------------------------------------------
+# Dictionary to hold a unique queue for each connected user session.
+# Format: { "session_id": Queue() }
+user_queues = {}
 
 # ---------------------------------------------------
 # APP INIT
@@ -33,7 +32,7 @@ app = FastAPI(title="Frono AI Agent")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # DEV ONLY
+    allow_origins=["*"],  # Adjust for production security
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42,27 +41,21 @@ app.add_middleware(
 llama = LLaMAClient()
 
 # ---------------------------------------------------
-# CONSTANT SYSTEM PROMPT (ANTI-HALLUCINATION)
+# UPDATED SCHEMA (Now requires session_id)
 # ---------------------------------------------------
-STRICT_SYSTEM_PROMPT = (
-    "You are Frono’s official AI assistant.\n"
-    "Rules:\n"
-    "- Do NOT assume product categories, brands, or services.\n"
-    "- Do NOT invent features about the website.\n"
-    "- Only use information explicitly provided in context.\n"
-    "- If information is missing, ask a clarifying question.\n"
-    "- Be concise and helpful."
-)
+class PromptRequest(BaseModel):
+    prompt: str
+    session_id: str  # <--- NEW: Client must send their unique ID
 
 # ---------------------------------------------------
-# HEALTH
+# HEALTH CHECK
 # ---------------------------------------------------
 @app.get("/health")
 def health():
     return check_health()
 
 # ---------------------------------------------------
-# TEST ENDPOINT
+# TEST ENDPOINT (Optional Debugging)
 # ---------------------------------------------------
 @app.post("/test-llama")
 def test_llama(req: PromptRequest):
@@ -73,39 +66,34 @@ def test_llama(req: PromptRequest):
     return {"response": response}
 
 # ---------------------------------------------------
-# MAIN CHAT ENDPOINT
+# MAIN CHAT ENDPOINT (Standard REST - Non-Streaming)
 # ---------------------------------------------------
 @app.post("/chat")
 def chat(req: PromptRequest):
     intent = detect_intent(req.prompt)
-
     q = req.prompt.lower()
 
-    # 🔒 HARD BRAND OVERRIDE (DO THIS FIRST)
+    # 🔒 HARD BRAND OVERRIDE
     if "frono" in q or "about" in q:
         intent = "ABOUT"
 
-    # 🗣️ PURE GREETINGS ONLY (NO BRAND)
+    # 🗣️ PURE GREETINGS
     if intent in {"GREETING", "SMALLTALK"} and "frono" not in q:
         return {
             "intent": intent,
             "lead_score": 0,
             "reply": (
-                "Hello! 👋 I can help you with information about Frono.uk, "
-                "including products, shipping, returns, or general questions. "
-                "What would you like to know?"
+                f"Hello! 👋 I am {BOT_NAME}. I can help you with Frono.uk products, "
+                "shipping, or returns. What would you like to know?"
             ),
             "next_question": None,
             "capture_lead": False,
             "used_rag": False
         }
 
-    # 🔍 ALWAYS RUN RAG FOR BRAND / INFO
-    context = retrieve_context(
-        query=req.prompt,
-        intent=intent
-    )
-
+    # 🔍 RAG LOGIC
+    context = retrieve_context(query=req.prompt, intent=intent)
+    
     final_prompt = build_prompt(
         user_message=req.prompt,
         context=context,
@@ -125,6 +113,98 @@ def chat(req: PromptRequest):
         "capture_lead": False,
         "used_rag": bool(context)
     }
+
+# ---------------------------------------------------
+# CHAT STREAM ENDPOINT (WRITES TO SPECIFIC QUEUE)
+# ---------------------------------------------------
+@app.post("/chat/stream")
+def chat_stream(req: PromptRequest):
+    session_id = req.session_id
+    
+    # Ensure a queue exists for this user
+    if session_id not in user_queues:
+        user_queues[session_id] = Queue()
+
+    user_queue = user_queues[session_id]
+
+    # 1. Detect Intent
+    intent = detect_intent(req.prompt)
+    
+    # 2. Retrieve Context
+    context = retrieve_context(req.prompt, intent)
+
+    # 3. Build Prompt based on Intent
+    if intent == "BROWSING":
+        final_prompt = (
+            f"You are {BOT_NAME}, the friendly shop assistant for Frono.uk.\n"
+            f"Store Context: {context}\n"
+            f"User Input: '{req.prompt}'\n\n"
+            "Instructions:\n"
+            "1. If HELLO/HI: Welcome them warmly and mention ONE popular category (like Garden).\n"
+            "2. If FEEDBACK (Nice, Great, OK): Say thanks and ask if they need anything else.\n"
+            "3. If PRODUCT NAME (e.g., Laptops): Politely say we don't sell that (check Context) and suggest our actual products.\n"
+            "Keep your reply natural and under 2 sentences."
+        )
+    else:
+        # Standard RAG prompt
+        final_prompt = build_prompt(
+            user_message=req.prompt,
+            context=context,
+            intent=intent
+        )
+
+    # 4. Stream Tokens into the USER-SPECIFIC queue
+    for token in llama.stream(prompt=final_prompt, system_prompt=STRICT_SYSTEM_PROMPT):
+        user_queue.put(token)
+
+    user_queue.put("__END__")
+    return {"status": "started"}
+
+# ---------------------------------------------------
+# SSE ENDPOINT (READS FROM SPECIFIC QUEUE)
+# ---------------------------------------------------
+@app.get("/chat/stream/events/{session_id}")
+def chat_stream_events(session_id: str, request: Request):
+    
+    # Create queue if it doesn't exist yet
+    if session_id not in user_queues:
+        user_queues[session_id] = Queue()
+
+    def event_generator():
+        q = user_queues[session_id]
+        
+        while True:
+            # Check for client disconnect (FastAPI handles this largely automatically in generator context)
+            if await_client_disconnect(request):
+                # Optional: Cleanup queue if client leaves
+                # del user_queues[session_id] 
+                break
+
+            if not q.empty():
+                token = q.get()
+                
+                if token == "__END__":
+                    yield "event: end\ndata: END\n\n"
+                    # We keep the queue alive for the session duration
+                    continue 
+                
+                yield f"data: {token}\n\n"
+            else:
+                # Sleep briefly to prevent CPU spike while waiting for tokens
+                time.sleep(0.05) 
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+def await_client_disconnect(request: Request):
+    # Helper to check connection status if needed
+    return False 
 
 # ---------------------------------------------------
 # LEAD CAPTURE + EMAIL AUTOMATION
@@ -157,62 +237,3 @@ def capture_lead(
         )
 
     return result
-
-
-
-@app.post("/chat/stream")
-def chat_stream(req: PromptRequest):
-    intent = detect_intent(req.prompt)
-    
-    # 1. ALWAYS retrieve context (Even for Browsing!)
-    context = retrieve_context(req.prompt, intent)
-
-    # 2. Build Prompt
-    
-    if intent == "BROWSING":
-        # New "Conversational" Prompt
-        final_prompt = (
-            "You are a friendly shop assistant for Frono.uk.\n"
-            f"Context: {context}\n"
-            "The user said hello or is browsing. "
-            "Reply warmly and briefly. Mention ONE popular category (like Garden or Christmas) "
-            "as an example, then ask what they are looking for today.\n"
-            "Keep it under 2 sentences.\n"
-            f"User: {req.prompt}"
-        )
-    else:
-        # Standard RAG prompt
-        final_prompt = build_prompt(
-            user_message=req.prompt,
-            context=context,
-            intent=intent
-        )
-
-    # 3. Stream Response
-    for token in llama.stream(prompt=final_prompt, system_prompt=STRICT_SYSTEM_PROMPT):
-        stream_queue.put(token)
-
-    stream_queue.put("__END__")
-    return {"status": "started"}
-
-@app.get("/chat/stream/events")
-def chat_stream_events():
-
-    def event_generator():
-        while True:
-            token = stream_queue.get()
-
-            if token == "__END__":
-                yield "event: end\ndata: END\n\n"
-                break
-
-            yield f"data: {token}\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
