@@ -58,6 +58,19 @@ CONTINUATION_PATTERNS = [
     r"\b(what else|show me more)\b"
 ]
 
+# Generic phone pattern for UK/International formats
+PHONE_PATTERN = r"(\+?[0-9]{1,3})?[-. ]?([0-9]{3,4})[-. ]?([0-9]{3,4})[-. ]?([0-9]{3,4})"
+
+def extract_contact_info(text: str) -> dict:
+    results = {}
+    email = re.search(EMAIL_PATTERN, text)
+    phone = re.search(PHONE_PATTERN, text)
+    
+    if email:
+        results["email"] = email.group(0)
+    if phone:
+        results["phone"] = phone.group(0)
+    return results
 
 def match_patterns(text: str, patterns: list) -> bool:
     return any(re.search(p, text) for p in patterns)
