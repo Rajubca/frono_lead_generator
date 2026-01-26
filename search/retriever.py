@@ -3,16 +3,27 @@ from config import STORE_SUMMARY
 
 MAX_TEXT_CHARS = 1500
 
+def get_product_by_name(name: str):
+
+    results = search_opensearch(
+        index="frono_products",
+        query={
+            "match": {
+                "name": name
+            }
+        },
+        limit=1
+    )
+
+    return results[0] if results else None
+
 
 def retrieve_context(query: str, intent: str) -> str:
     """
     Hybrid retriever:
     - Uses frono_products for inventory queries
     - Uses frono_site_facts for brand/policy queries
-    - Filters out-of-stock items
     """
-
-    q = query.lower()
 
     # ----------------------------------
     # 1. Detect Product / Buying Intents
@@ -22,7 +33,7 @@ def retrieve_context(query: str, intent: str) -> str:
     if intent in product_intents:
 
         # -------------------------------
-        # Search Inventory First
+        # Search Inventory
         # -------------------------------
         product_results = search_opensearch(
             index="frono_products",
@@ -114,3 +125,4 @@ def retrieve_context(query: str, intent: str) -> str:
     # 4. Fallback
     # ----------------------------------
     return STORE_SUMMARY
+

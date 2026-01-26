@@ -10,6 +10,8 @@ from pydantic import BaseModel
 # --- IMPORTS ---
 from agent.lead_scoring import LeadScorer
 from agent.response_strategy import get_lead_hook
+from search.retriever import get_product_by_name
+from search.opensearch_client import client
 
 from models.schemas import LeadCreate, LeadResponse
 from llm.llama_client import LLaMAClient
@@ -28,6 +30,9 @@ from llm.groq_client import GroqClient # WAS: from llm.llama_client import LLaMA
 # Dictionary to hold a unique queue for each connected user session.
 # Format: { "session_id": Queue() }
 user_queues = {}
+# Temporary stock reservations (session-based)
+stock_reservations = {}
+RESERVE_TIMEOUT = 600  # 10 minutes
 
 # ---------------------------------------------------
 # APP INIT
@@ -79,11 +84,8 @@ def test_llama(req: PromptRequest):
 
 user_sessions = {} 
 def extract_topic(text):
-    keywords = ["heater","tree","light","furniture","pool"]
-    for k in keywords:
-        if k in text.lower():
-            return k
-    return text
+    return text.lower().strip()
+
 
 @app.post("/chat")
 def chat(req: PromptRequest):
@@ -118,20 +120,36 @@ def process_message(req: PromptRequest):
     # -------------------------
     if session_id not in user_sessions:
         user_sessions[session_id] = {
+            "stage": "browsing",
             "last_topic": None,
             "scorer": LeadScorer(),
             "history": []
         }
 
     session = user_sessions[session_id]
+    # Cleanup expired reservations
+    now = time.time()
+
+    for sid in list(stock_reservations.keys()):
+        if now - stock_reservations[sid]["time"] > RESERVE_TIMEOUT:
+            del stock_reservations[sid]
+
     scorer = session["scorer"]
+    # Prepare history early (needed for early returns)
+    history_text = ""
+
+    for turn in session["history"]:
+        if turn["bot"]:
+            history_text += f"User: {turn['user']}\n"
+            history_text += f"Assistant: {turn['bot']}\n"
+
 
     # -------------------------
     # Save user message FIRST
     # -------------------------
     session["history"].append({
         "user": req.prompt,
-        "bot": None   # placeholder
+        "bot": None
     })
 
     session["history"] = session["history"][-6:]
@@ -140,6 +158,157 @@ def process_message(req: PromptRequest):
     # Detect intent
     # -------------------------
     intent = detect_intent(req.prompt)
+
+    # -------------------------
+    # Funnel stage tracking
+    # -------------------------
+    # Funnel stage tracking (STICKY CHECKOUT)
+
+    # ------------------------------------------------
+    # Force contact before checkout progression
+    # ------------------------------------------------
+
+    if (
+        session["stage"] == "checkout"
+        and not scorer.email_captured
+        and intent in ["PAYMENT", "CONFIRMATION", "AFFIRMATION", "BUYING"]
+    ):
+        intent = "NEED_CONTACT"
+
+    if session["stage"] != "converted":
+
+        if intent == "PRODUCT_INFO":
+            session["stage"] = "interest"
+
+        elif intent == "BUYING":
+            session["stage"] = "checkout"
+
+        # Keep checkout until completed
+        elif session["stage"] == "checkout":
+            session["stage"] = "checkout"
+
+
+    elif intent == "LEAD_SUBMISSION":
+
+        scorer.email_captured = True
+
+        order = stock_reservations.get(session_id)
+
+        # No active reservation → reset
+        if not order:
+
+            session["stage"] = "interest"
+
+            lead_hook = None
+
+            return {
+                "intent": intent,
+                "final_prompt": build_prompt(
+                    user_message=req.prompt,
+                    context="Your order session has expired. Please select the product again.",
+                    intent=intent,
+                    lead_hook=None,
+                    history=history_text
+                ),
+                "scorer": scorer,
+                "session": session
+            }
+
+        # Active reservation → commit
+        session["stage"] = "converted"
+
+        stock_reservations.pop(session_id, None)
+
+        try:
+            client.update(
+                index="frono_products",
+                id=order["sku"],
+                body={
+                    "script": {
+                        "source": "if (ctx._source.qty >= params.q) { ctx._source.qty -= params.q }",
+                        "params": {"q": order["qty"]}
+                    }
+                }
+            )
+
+        except Exception as e:
+            print("Stock commit failed:", e)
+
+
+        scorer.email_captured = True
+
+        if session_id in stock_reservations:
+
+            session["stage"] = "converted"
+
+            order = stock_reservations.pop(session_id)
+
+            try:
+                client.update(
+                    index="frono_products",
+                    id=order["sku"],
+                    body={
+                        "script": {
+                            "source": "if (ctx._source.qty >= params.q) { ctx._source.qty -= params.q }",
+                            "params": {"q": order["qty"]}
+                        }
+                    }
+                )
+
+            except Exception as e:
+                print("Stock commit failed:", e)
+
+        else:
+            session["stage"] = "interest"
+
+
+            order = stock_reservations.pop(session_id)
+
+            client.update(
+                index="frono_products",
+                id=order["sku"],
+                body={
+                    "script": {
+                        "source": "ctx._source.qty -= params.q",
+                        "params": {"q": order["qty"]}
+                    }
+                }
+            )
+
+
+    # -------------------------
+    # Detect quantity intent
+    # -------------------------
+    qty_match = re.search(r"\b(\d+)\s*(unit|units|pcs|pieces)?\b", req.prompt.lower())
+
+    if qty_match and intent in ["BUYING", "AFFIRMATION", "PRODUCT_INFO"]:
+
+
+        requested_qty = int(qty_match.group(1))
+
+        # Try reserve product
+        if session["last_topic"]:
+
+            product = get_product_by_name(session["last_topic"])
+
+
+            if product and session_id not in stock_reservations:
+
+                available = product["qty"]
+
+                if available >= requested_qty:
+
+                    # Reserve in memory
+                    stock_reservations[session_id] = {
+                        "sku": product["sku"],
+                        "qty": requested_qty,
+                        "time": time.time()
+                    }
+
+                    session["reserved_qty"] = requested_qty
+
+                else:
+                    session["stage"] = "interest"
 
     # -------------------------
     # Topic memory
@@ -158,9 +327,39 @@ def process_message(req: PromptRequest):
     # -------------------------
     scorer.update(intent, req.prompt)
 
+    # -------------------------
+    # Lead Capture Logic (FIXED)
+    # -------------------------
+    # -------------------------
+    # Lead Capture Logic (STRICT)
+    # -------------------------
+
     lead_hook = None
-    if scorer.should_trigger_hook():
-        lead_hook = get_lead_hook(intent)
+
+    # Highest priority: Must collect contact
+    if intent == "NEED_CONTACT":
+
+        lead_hook = (
+            "Before continuing, ask the user clearly for their "
+            "email address or phone number to proceed with the order. "
+            "Do not discuss payment or delivery yet."
+        )
+
+    # Normal checkout without contact
+    elif session["stage"] == "checkout" and not scorer.email_captured:
+
+        lead_hook = (
+            "Please provide your email or phone number "
+            "so I can complete your order."
+        )
+
+    # Secondary: High intent lead
+    elif scorer.should_trigger_hook() and intent in ["BUYING", "AFFIRMATION"]:
+
+        lead_hook = (
+            "Ask the user for their email or phone number "
+            "to proceed with the order."
+        )
 
     # -------------------------
     # Retrieve context
@@ -175,7 +374,7 @@ def process_message(req: PromptRequest):
     # -------------------------
     history_text = ""
 
-    for turn in session["history"][:-1]:  # exclude current placeholder
+    for turn in session["history"][:-1]:
         if turn["bot"]:
             history_text += f"User: {turn['user']}\n"
             history_text += f"Assistant: {turn['bot']}\n"
@@ -195,7 +394,7 @@ def process_message(req: PromptRequest):
         "intent": intent,
         "final_prompt": final_prompt,
         "scorer": scorer,
-        "session": session   # 👈 return session
+        "session": session
     }
 
 @app.post("/chat/stream")
