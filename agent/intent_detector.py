@@ -165,19 +165,3 @@ def llm_intent_fallback(message: str) -> str:
 
     # Default safety net
     return "BROWSING"
-    prompt = (
-        "Classify the user message into ONE category:\n"
-        "ABOUT_BRAND, BUYING, PRODUCT_INFO, SUPPORT, CLOSING, BROWSING.\n"
-        "Reply with only the category name.\n\n"
-        f"Message: {message}"
-    )
-
-    try:
-        result = llama.generate(prompt).upper()
-        for intent in ["ABOUT_BRAND", "BUYING", "PRODUCT_INFO", "SUPPORT", "CLOSING", "BROWSING"]:
-            if intent in result:
-                return intent     
-    except Exception:
-        pass
-
-    return "BROWSING"
