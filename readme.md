@@ -263,3 +263,17 @@ Multilingual support (UK/EU)
 If the data in OpenSearch is correct, the AI will always be correct.
 
 This project turns OpenSearch into a brand knowledge engine, not just search.
+
+
+Change the Logic 27-01-2026
+Browsing
+   ↓
+Product Selected
+   ↓
+Quantity Selected
+   ↓
+Email Collected
+   ↓
+Order Confirmed
+   ↓
+Completed

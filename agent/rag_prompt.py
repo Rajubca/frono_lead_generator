@@ -59,6 +59,7 @@ def build_prompt(user_message, context, intent, lead_hook=None, history=""):
 
         "Rules:\n"
         "- Answer using the verified facts below."
+        "- Never contradict confirmed stock information.\n"
         "- Do NOT proceed with payment unless contact is collected.\n"
         "- When the user is ready to buy, guide them through next steps."
         "- Do NOT mention software, analytics, ERP, or unrelated services.\n"

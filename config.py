@@ -23,11 +23,11 @@ GROQ_MODEL = "llama-3.3-70b-versatile"  # Very fast and smart model
 BOT_NAME = "Frono BuddyAI"
 
 # SMTP (recommended first)
-SMTP_HOST = "smtp.gmail.com"
+SMTP_HOST = "smtp.zoho.eu"
 SMTP_PORT = 587
-SMTP_USERNAME = "no-reply@frono.uk"
-SMTP_PASSWORD = "APP_PASSWORD_HERE"
-FROM_EMAIL = "Frono <no-reply@frono.uk>"
+SMTP_USERNAME = "support@frono.uk"
+SMTP_PASSWORD = """"""
+FROM_EMAIL = "Frono <support@frono.uk>"
 
 # Internal notification
 SALES_EMAIL = "sales@frono.uk"
