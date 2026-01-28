@@ -30,7 +30,7 @@ SMTP_PASSWORD = """"""
 FROM_EMAIL = "Frono <support@frono.uk>"
 
 # Internal notification
-SALES_EMAIL = "sales@frono.uk"
+SALES_EMAIL = "rajubca013@hotmail.com"
 
 # ... existing config ...
 
