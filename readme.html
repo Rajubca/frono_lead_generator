@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frono Lead Generator Documentation</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; padding: 20px; }
+        h1, h2, h3 { color: #2c3e50; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        code { background-color: #f4f4f4; padding: 2px 4px; border-radius: 4px; font-family: "Courier New", Courier, monospace; }
+        pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; border-left: 5px solid #3498db; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; }
+        .funnel-stage { font-weight: bold; color: #e67e22; }
+    </style>
+</head>
+<body>
+
+    <h1>Frono AI Lead Generator Documentation</h1>
+    <p>This document provides a comprehensive technical overview of the <strong>frono_lead_generator</strong> repository, detailing function-level logic and variable management.</p>
+
+    <h2>1. <code>app.py</code> — Orchestration Layer</h2>
+    <p>The core API handling session state, intent routing, and order execution.</p>
+
+    <h3>Key Global Variables</h3>
+    <ul>
+        <li><code>user_sessions</code>: Dictionary mapping <code>session_id</code> to state objects containing history, current stage, and email.</li>
+        <li><code>stock_reservations</code>: Cache holding SKU, name, and price for items validated during the checkout phase.</li>
+        <li><code>user_queues</code>: Thread-safe queues for real-time streaming responses.</li>
+    </ul>
+
+    <h3>Core Functions</h3>
+    <pre><code>process_message(req: PromptRequest)</code></pre>
+    <ul>
+        <li><strong>Intent & Contact</strong>: Extracts user intent and email/phone details.</li>
+        <li><strong>Strict Digit Matching</strong>: Resolves numeric inputs (e.g., "2") into full product names via <code>session["menu"]</code>.</li>
+        <li><strong>SKU Locking</strong>: Saves <code>session["last_sku"]</code> to ensure the agent maintains focus on a specific product during checkout.</li>
+    </ul>
+
+    <pre><code>chat_stream(req: PromptRequest, background_tasks)</code></pre>
+    <ul>
+        <li><strong>Flow</strong>: Generates AI tokens via LLM and manages SSE delivery.</li>
+        <li><strong>Automation</strong>: If the stage is <code>converted</code>, it triggers OpenSearch stock updates and background email tasks.</li>
+    </ul>
+
+    
+
+    <h2>2. <code>retriever.py</code> — Data Retrieval Layer</h2>
+    <p>Interfaces with OpenSearch to ground the LLM in verified facts.</p>
+
+    <h3>Core Functions</h3>
+    <pre><code>get_product_by_name(identifier: str)</code></pre>
+    <ul>
+        <li><strong>Precision</strong>: Uses a <code>term</code> query on <code>sku.keyword</code> for 100% accurate ID matching.</li>
+        <li><strong>Fallback</strong>: Uses a fuzzy <code>match</code> query for product names.</li>
+    </ul>
+
+    <pre><code>retrieve_context(query: str, intent: str)</code></pre>
+    <ul>
+        <li><strong>Product Context</strong>: Returns a list of available items where <code>qty > 0</code>.</li>
+        <li><strong>Knowledge Context</strong>: Searches <code>frono_site_facts</code> for brand and policy data.</li>
+    </ul>
+
+    <h2>3. The Sales Funnel Logic</h2>
+    <p>Users move through distinct stages defined in <code>user_sessions[id]["stage"]</code>.</p>
+
+    
+
+    <table>
+        <thead>
+            <tr>
+                <th>Stage</th>
+                <th>Description</th>
+                <th>Trigger Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="funnel-stage">browsing</td>
+                <td>Initial state</td>
+                <td>General category discovery.</td>
+            </tr>
+            <tr>
+                <td class="funnel-stage">interest</td>
+                <td>User asks about a specific item</td>
+                <td>Locks the SKU in the user session.</td>
+            </tr>
+            <tr>
+                <td class="funnel-stage">checkout</td>
+                <td>Buying intent detected</td>
+                <td>Verifies inventory and requests email.</td>
+            </tr>
+            <tr>
+                <td class="funnel-stage">converted</td>
+                <td>Email captured + Stock confirmed</td>
+                <td>Executes stock reduction and email automation.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>4. Developer Notes</h2>
+    <ul>
+        <li><strong>Currency Formatting</strong>: Ensure prices are formatted in <code>retriever.py</code> to prevent the LLM from hallucinating decimal placements (e.g., converting 4999 to 49.99).</li>
+        <li><strong>Stock Updates</strong>: The <code>client.update</code> method in <code>app.py</code> requires the OpenSearch Document ID to match the <code>sku</code>.</li>
+    </ul>
+
+</body>
+</html>
