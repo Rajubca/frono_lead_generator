@@ -3,19 +3,32 @@ from config import STORE_SUMMARY
 
 MAX_TEXT_CHARS = 1500
 
-def get_product_by_name(name: str):
-
+def get_product_by_name(identifier: str):
     results = search_opensearch(
         index="frono_products",
         query={
-            "match": {
-                "name": name
+            "bool": {
+                "should": [
+                    {
+                        "term": {
+                            "sku.keyword": identifier
+                        }
+                    },
+                    {
+                        "match": {
+                            "name": {
+                                "query": identifier,
+                                "operator": "and"
+                            }
+                        }
+                    }
+                ]
             }
         },
         limit=1
     )
-
     return results[0] if results else None
+
 
 
 def retrieve_context(query: str, intent: str) -> str:
@@ -71,9 +84,17 @@ def retrieve_context(query: str, intent: str) -> str:
         if product_results:
             items = []
             for r in product_results:
+                raw_price = r.get('price', 0)
+                try:
+                    # Force the format to £4,999.00 or £49.99 specifically
+                    formatted_price = f"£{float(raw_price):,.2f}" 
+                except (ValueError, TypeError):
+                    formatted_price = f"£{raw_price}"
+
                 items.append(
-                    f"- {r['name']} (£{r.get('price','N/A')} | Stock: {r.get('qty',0)})"
+                    f"- {r['name']} ({formatted_price} | Stock: {r.get('qty', 0)})"
                 )
+                
             product_text = "\n".join(items)
             return (
                 "Available products in stock:\n"
