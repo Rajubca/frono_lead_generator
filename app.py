@@ -204,6 +204,7 @@ def process_message(req: PromptRequest):
             "stage": "browsing",
             "last_topic": None,
             "scorer": LeadScorer(),
+            "last_sku": None,
             "history": [],
             "email": None,
             "menu": {},
@@ -213,6 +214,15 @@ def process_message(req: PromptRequest):
 
     session = user_sessions[session_id]
     scorer = session["scorer"]
+    
+    # --- NEW: STRICT DIGIT MATCHING ---
+    # Only trigger menu if the ENTIRE message is just a digit (e.g., "1" or "2")
+    # This prevents "buy 4" from being treated as a menu selection.
+    clean_prompt = req.prompt.strip()
+    if clean_prompt.isdigit() and len(clean_prompt) <= 2:
+        menu = session.get("menu", {})
+        if clean_prompt in menu:
+            req.prompt = menu[clean_prompt]
 
     # 2. Extract Data from User Message
     intent = detect_intent(req.prompt)
@@ -221,7 +231,11 @@ def process_message(req: PromptRequest):
     # --- Updated Funnel Stages in process_message ---
 
     # 1. Capture email and set converted stage FIRST
-    if "email" in contact:
+    if (
+            "email" in contact
+            and session["stock_confirmed"]
+            and session_id in stock_reservations
+        ):
         session["email"] = contact["email"]
         scorer.email_captured = True
         intent = "LEAD_SUBMISSION"

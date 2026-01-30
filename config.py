@@ -40,9 +40,9 @@ STORE_SUMMARY = (
     "Frono.uk is a home and lifestyle store based in the UK. "
     "We focus on making your home cozy and your garden beautiful. "
     "Our key collections are: "
+    "- Christmas Shop (Trees, Lights, and Decor). "
     "- Garden & Outdoor (Rattan furniture, Hot Tubs, Gazebos). "
     "- Seasonal Heating (Energy-efficient heaters). "
-    "- Christmas Shop (Trees, Lights, and Decor). "
     "We do not sell electronics or fashion. "
     "If asked about stock, say you can check the specific category."
 )
