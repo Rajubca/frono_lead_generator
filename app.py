@@ -19,7 +19,7 @@ from services.email_templates import (
     customer_confirmation_email,
     sales_notification_email
 )
-
+from services.stock_service import StockService
 from models.schemas import LeadCreate, LeadResponse
 from llm.llama_client import LLaMAClient
 from agent.health import check_health
@@ -143,20 +143,19 @@ def chat(req: PromptRequest, background_tasks: BackgroundTasks):
             # ✅ This block should now run reliably
             print(f"📧 Triggering email for {session['email']}...")
         if order:
-            # 1️⃣ Commit stock
+            # 1 Updated stock commit logic in app.py
+            # ✅ Replace the failing client.update with this:
             try:
-                client.update(
-                    index="frono_products",
-                    id=order["sku"],
-                    body={
-                        "script": {
-                            "source": "if (ctx._source.qty >= params.q) { ctx._source.qty -= params.q }",
-                            "params": {"q": order["qty"]}
-                        }
-                    }
+                # Inside your chat_stream when an order is confirmed:
+                StockService.reserve_and_commit(
+                    sku=order["sku"],
+                    qty=order["qty"]
                 )
+
+                print(f"✅ Stock committed for {order['sku']}")
             except Exception as e:
-                print("Stock commit failed:", e)
+                print(f"❌ Stock update failed: {e}")
+
 
             # 2️⃣ Send customer email
             background_tasks.add_task(
@@ -197,125 +196,245 @@ def chat(req: PromptRequest, background_tasks: BackgroundTasks):
 # ---------------------------------------------------
 def process_message(req: PromptRequest):
     session_id = req.session_id
-    
+
+    # ------------------------------------------------
     # 1. Initialize Session
+    # ------------------------------------------------
     if session_id not in user_sessions:
         user_sessions[session_id] = {
             "stage": "browsing",
             "last_topic": None,
+            "selected_product": None,   # ✅ LOCK PRODUCT
             "scorer": LeadScorer(),
-            "last_sku": None,
             "history": [],
             "email": None,
             "menu": {},
             "stock_confirmed": False,
-            "reserved_qty": None
+            "reserved_qty": None,
+            "order": None,
         }
 
     session = user_sessions[session_id]
     scorer = session["scorer"]
-    
-    # --- NEW: STRICT DIGIT MATCHING ---
-    # Only trigger menu if the ENTIRE message is just a digit (e.g., "1" or "2")
-    # This prevents "buy 4" from being treated as a menu selection.
+
+    # ------------------------------------------------
+    # 2. Normalize Menu Input
+    # ------------------------------------------------
     clean_prompt = req.prompt.strip()
+
     if clean_prompt.isdigit() and len(clean_prompt) <= 2:
         menu = session.get("menu", {})
         if clean_prompt in menu:
             req.prompt = menu[clean_prompt]
 
-    # 2. Extract Data from User Message
+    # ------------------------------------------------
+    # 3. Detect Intent + Contact
+    # ------------------------------------------------
     intent = detect_intent(req.prompt)
-    contact = extract_contact_info(req.prompt) # Using function from intent_detector.py
-    
-    # --- Updated Funnel Stages in process_message ---
+    contact = extract_contact_info(req.prompt)
 
-    # 1. Capture email and set converted stage FIRST
-    if (
-            "email" in contact
-            and session["stock_confirmed"]
-            and session_id in stock_reservations
-        ):
-        session["email"] = contact["email"]
-        scorer.email_captured = True
-        intent = "LEAD_SUBMISSION"
-        session["stage"] = "converted" # Lock in the conversion
+    # ✅ Regex fallback for email
+    email_match = re.search(
+        r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+",
+        req.prompt
+    )
 
-    # 2. Only update other stages if we AREN'T already converted
-    if session["stage"] != "converted":
-        if intent == "PRODUCT_INFO":
-            session["stage"] = "interest"
-        elif intent == "BUYING":
-            session["stage"] = "checkout"
+    if email_match and "email" not in contact:
+        contact["email"] = email_match.group()
 
-
+    # ------------------------------------------------
+    # 4. Extract Quantity
+    # ------------------------------------------------
     qty_match = re.search(r"\b(\d+)\b", req.prompt)
-    requested_qty = int(qty_match.group(1)) if qty_match else (session.get("reserved_qty") or 1)
 
- 
-    # 4. Handle Stock & Context
+    requested_qty = int(qty_match.group(1)) if qty_match else (
+        session.get("reserved_qty") or 1
+    )
+
+    # ------------------------------------------------
+    # 5. Update Topic (ONLY IF PRODUCT KEYWORD)
+    # ------------------------------------------------
+    topic = extract_topic(req.prompt)
+
+    VALID_PRODUCTS = [
+        "oil filled",
+        "radiator",
+        "quartz",
+        "fan heater",
+        "halogen",
+        "heater"
+    ]
+
+    if topic in VALID_PRODUCTS:
+        session["last_topic"] = topic
+
+    # ------------------------------------------------
+    # 6. Resolve Product (Re-lock on Topic Change)
+    # ------------------------------------------------
+
+    product = None
+
+    if session.get("last_topic"):
+
+        latest_product = get_product_by_name(session["last_topic"])
+
+        # If user changed product → reset previous order
+        if latest_product:
+
+            if (
+                not session.get("selected_product")
+                or session["selected_product"]["sku"] != latest_product["sku"]
+            ):
+
+                # 🔄 Reset old checkout
+                session["selected_product"] = latest_product
+                session["stock_confirmed"] = False
+                session["order"] = None
+                session["reserved_qty"] = None
+
+                # Also clear old reservation
+                stock_reservations.pop(session_id, None)
+
+            product = session["selected_product"]
+
+
+    # ------------------------------------------------
+    # 7. Reserve Stock ONLY ON BUY
+    # ------------------------------------------------
     context = ""
     lead_hook = None
 
-    # If they mention a product, update the topic
-    topic = extract_topic(req.prompt)
-    if topic and topic != req.prompt.lower():
-        session["last_topic"] = topic
-
-    # Logic for checking stock if they want to buy or are in checkout
-    if intent in ["BUYING", "AFFIRMATION", "LEAD_SUBMISSION"] or session["stage"] == "checkout":
-        search_term = session["last_topic"] or req.prompt
-        product = get_product_by_name(search_term)
+    if intent == "BUYING" and not session["stock_confirmed"]:
 
         if product:
+
             available = product.get("qty", 0)
+
             if available >= requested_qty:
-                # Success: We have enough stock
-                stock_reservations[session_id] = {
+
+                order = {
                     "sku": product["sku"],
                     "name": product["name"],
                     "price": product["price"],
                     "qty": requested_qty,
-                    "available": available
+                    "available": available,
                 }
+
+                stock_reservations[session_id] = order
+                session["order"] = order
+
                 session["stock_confirmed"] = True
                 session["reserved_qty"] = requested_qty
-                
-                context = f"CONFIRMED: We have {available} units of {product['name']} in stock. Price: £{product['price']}."
+                session["stage"] = "checkout"
+
+                context = (
+                    f"CONFIRMED: {product['name']} is available. "
+                    f"Price: £{product['price']}."
+                )
+
             else:
-                # Failure: Not enough stock
                 session["stage"] = "interest"
-                context = f"NOTICE: We only have {available} units of {product['name']} left. User requested {requested_qty}."
+
+                context = (
+                    f"NOTICE: Only {available} units left. "
+                    f"You requested {requested_qty}."
+                )
+
         else:
-            context = retrieve_context(req.prompt, intent)
+            context = "I couldn't identify the product. Please specify again."
+
     else:
         context = retrieve_context(req.prompt, intent)
 
-    # 5. Determine Lead Hook (Strategic Question)
-    
-    if session["stage"] == "converted":
-        lead_hook = "The order is CONFIRMED and the email is sent. Thank the user and tell them to check their inbox. DO NOT ask for their name, phone, or address now."
-    elif session["stage"] == "checkout" and not session["email"]:
-        lead_hook = "The user wants to buy. Ask ONLY for their email address to send the confirmation."    
-    elif intent == "LEAD_SUBMISSION":
-        lead_hook = "Thank the user for their email and confirm their order is being processed."
+    # ------------------------------------------------
+    # 8. Convert When Email Arrives
+    # ------------------------------------------------
+    if (
+        "email" in contact
+        and session["stock_confirmed"]
+        and session["order"]
+        and session["stage"] not in ["converted", "completed"]
+    ):
 
-    # 6. Build Final Prompt
+        session["email"] = contact["email"]
+        scorer.email_captured = True
+
+        session["stage"] = "converted"
+        intent = "LEAD_SUBMISSION"
+
+        print("✅ CONVERTED:", session["email"])
+
+    # ------------------------------------------------
+    # 9. Stage Control (LOCKED)
+    # ------------------------------------------------
+    if session["stage"] not in ["converted", "completed"]:
+
+        if intent == "PRODUCT_INFO":
+            session["stage"] = "interest"
+
+        elif intent == "BUYING":
+            session["stage"] = "checkout"
+
+    # ------------------------------------------------
+    # 10. Lead Hooks
+    # ------------------------------------------------
+    if session["stage"] == "converted":
+
+        lead_hook = (
+            "The order is CONFIRMED and email is sent. "
+            "Thank the user and ask them to check inbox."
+        )
+
+    elif session["stage"] == "checkout" and not session["email"]:
+
+        lead_hook = (
+            "Ask ONLY for user's email for order confirmation."
+        )
+
+    elif intent == "LEAD_SUBMISSION":
+
+        lead_hook = "Thank user and confirm order processing."
+
+    # ------------------------------------------------
+    # 11. Build History
+    # ------------------------------------------------
     history_text = ""
-    for turn in session["history"][-5:]: # Last 5 turns for context
+
+    for turn in session["history"][-5:]:
         if turn["bot"]:
-            history_text += f"User: {turn['user']}\nAssistant: {turn['bot']}\n"
+            history_text += (
+                f"User: {turn['user']}\n"
+                f"Assistant: {turn['bot']}\n"
+            )
 
     final_prompt = build_prompt(
         user_message=req.prompt,
         context=context,
         intent=intent,
         lead_hook=lead_hook,
-        history=history_text
+        history=history_text,
     )
 
-    # Save History (User side)
-    session["history"].append({"user": req.prompt, "bot": None})
+    # ------------------------------------------------
+    # 12. Save Turn
+    # ------------------------------------------------
+    session["history"].append({
+        "user": req.prompt,
+        "bot": None
+    })
+
+    # ------------------------------------------------
+    # 13. Debug
+    # ------------------------------------------------
+    print("DEBUG STATE:", {
+        "stage": session["stage"],
+        "email": session["email"],
+        "topic": session["last_topic"],
+        "product": session["selected_product"]["name"]
+        if session["selected_product"] else None,
+        "stock": session["stock_confirmed"],
+        "order": bool(session["order"])
+    })
 
     return {
         "intent": intent,
@@ -323,6 +442,7 @@ def process_message(req: PromptRequest):
         "scorer": scorer,
         "session": session
     }
+# ---------------------------------------------------
 
 @app.post("/chat/stream")
 def chat_stream(req: PromptRequest, background_tasks: BackgroundTasks):
@@ -364,18 +484,21 @@ def chat_stream(req: PromptRequest, background_tasks: BackgroundTasks):
             
             # 1. Update OpenSearch Stock
             try:
-                client.update(
-                    index="frono_products",
-                    id=order["sku"],
-                    body={
-                        "script": {
-                            "source": "if (ctx._source.qty >= params.q) { ctx._source.qty -= params.q }",
-                            "params": {"q": order["qty"]}
-                        }
-                    }
+                StockService.reserve_and_commit(
+                    sku=order["sku"],
+                    qty=order["qty"]
                 )
+
+                print(f"✅ Stock committed for in Stream {order['sku']}")
+                
+                print(f"✅ Stock successfully updated for {order['sku']}")
+
             except Exception as e:
-                print(f"❌ Stock update failed: {e}")
+                print("❌ Stock commit failed:", e)
+
+                session["stage"] = "failed"
+                return
+
 
             # 2. Add Email Tasks
             background_tasks.add_task(
