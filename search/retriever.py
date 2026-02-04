@@ -106,9 +106,12 @@ def retrieve_context(query: str, intent: str) -> str:
         # Refined Fallback for No Stock
         # -------------------------------
         return (
-            "I couldn't find a specific product match for that in our current inventory. "
-            "We generally carry Heaters, Lights, and Garden Furniture. "
-            "Would you like me to check our full Seasonal Heating or Lighting range instead?"
+            "We don't currently carry that specific item, but we have a wide range of "
+            "enabled products in our Shopify store that might interest you:\n"
+            "- Seasonal Heating (Oil Filled Radiators, Fan Heaters)\n"
+            "- Christmas Shop (Trees, LED Lights)\n"
+            "- Garden Furniture & Hot Tubs\n\n"
+            "Would you like to explore one of these collections instead?"
         )
 
     

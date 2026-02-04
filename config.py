@@ -1,8 +1,17 @@
+# OpenSearch configuration
 OPENSEARCH_URL = "http://127.0.0.1:9200"
 OPENSEARCH_HOST = "127.0.0.1"
 OPENSEARCH_PORT = 9200
 OPENSEARCH_USE_SSL = False
 
+# Shopify configuration
+SHOPIFY_API_KEY=""
+SHOPIFY_API_PASSWORD=""
+SHOPIFY_ACCESS_TOKEN=""
+SHOPIFY_STORE_NAME=""
+API_VERSION="2025-01"
+
+# Index names
 INDEX_PRODUCTS = "frono_products"
 INDEX_FAQ = "frono_faq"
 INDEX_POLICIES = "frono_policies"

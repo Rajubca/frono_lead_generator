@@ -151,18 +151,23 @@ def detect_intent(text: str) -> str:
 
 def llm_intent_fallback(message: str) -> str:
     """
-    Uses Groq to classify ambiguous messages that failed regex matching.
+    Uses Groq to classify ambiguous messages. 
+    Strictly limited to Frono.uk business domains.
     """
     prompt = (
-        "Classify the user message into ONE category:\n"
+        "You are a Frono.uk business classifier. Classify this message into ONE category:\n"
         "ABOUT_BRAND, BUYING, PRODUCT_INFO, SUPPORT, CLOSING, BROWSING, AFFIRMATION.\n"
-        "Reply with only the category name.\n\n"
+        "If the message is NOT about retail, heaters, Christmas, garden furniture, or customer support, "
+        "reply ONLY with 'OUT_OF_DOMAIN'.\n\n"
         f"Message: {message}"
     )
 
     try:
-        # Using the global 'llama' client (which is actually Groq)
         result = llama.generate(prompt).upper()
+        
+        # Explicit check for domain restriction
+        if "OUT_OF_DOMAIN" in result:
+            return "OUT_OF_DOMAIN"
 
         valid_intents = [
             "ABOUT_BRAND", "BUYING", "PRODUCT_INFO", "SUPPORT", 
@@ -174,7 +179,6 @@ def llm_intent_fallback(message: str) -> str:
                 return intent     
     except Exception as e:
         print(f"Intent Fallback Error: {e}")
-        pass
-
-    # Default safety net
-    return "BROWSING"
+    
+    # If it's a long complex message that matched nothing, it's likely out of domain
+    return "OUT_OF_DOMAIN" if len(message.split()) > 10 else "BROWSING"

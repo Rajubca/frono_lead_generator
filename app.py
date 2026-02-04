@@ -231,6 +231,28 @@ def process_message(req: PromptRequest):
     # 3. Detect Intent + Contact
     # ------------------------------------------------
     intent = detect_intent(req.prompt)
+    # --- NEW: DOMAIN GUARDRAIL ---
+    if intent == "OUT_OF_DOMAIN":
+        # Force a specific prompt that mandates the contact message
+        final_prompt = (
+            "The user asked something outside Frono's business scope. "
+            "Reply EXACTLY with : 'I’m unable to find the right information for this at the moment. Please reach out to support@frono.uk, and they’ll be happy to help you.Meanwhile, feel free to explore our latest Christmas specials, heaters, and outdoor products for great deals!' "
+            "Do not provide any other information or help."
+        )
+        # ✅ Add this turn to history so the stream endpoint doesn't crash
+        session["history"].append({
+            "user": req.prompt,
+            "bot": None
+        })
+        return {
+            "intent": "OUT_OF_DOMAIN",
+            "final_prompt": final_prompt,
+            "scorer": session["scorer"],
+            "session": session
+        }
+    # ✅ ADD THIS LINE to calculate the score based on the message
+    scorer.update(intent, req.prompt)
+    # -----------------------------
     contact = extract_contact_info(req.prompt)
 
     # ✅ Regex fallback for email
@@ -473,7 +495,12 @@ def chat_stream(req: PromptRequest, background_tasks: BackgroundTasks):
         user_queue.put(token)
 
     # Save the full bot response to history
-    session["history"][-1]["bot"] = full_reply
+    # ✅ Safe update: check if list is not empty
+    if session.get("history"):
+        session["history"][-1]["bot"] = full_reply
+    else:
+        # Fallback if history was somehow skipped
+        session["history"].append({"user": req.prompt, "bot": full_reply})
 
     # --- EMAIL & STOCK LOGIC ---
     if session.get("stage") == "converted" and session.get("email"):
