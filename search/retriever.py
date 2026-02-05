@@ -3,6 +3,12 @@ from config import STORE_SUMMARY
 
 MAX_TEXT_CHARS = 1500
 
+SEASON_KEYWORDS = {
+    "winter": ["heater", "radiator", "warm", "oil", "fan", "quartz"],
+    "christmas": ["tree", "tinsel", "light", "decoration", "garland"],
+    "outdoor": ["garden", "sofa", "gazebo", "rattan"]
+}
+
 def get_product_by_name(identifier: str):
     results = search_opensearch(
         index="frono_products",
@@ -39,7 +45,7 @@ def retrieve_context(query: str, intent: str) -> str:
     - Uses frono_site_facts for brand/policy queries
     """
     q_lower = query.lower()
-
+    
     # --- New: Category Discovery Logic ---
     # If the user is asking "what categories" or "show products"
     category_keywords = ["category", "categories", "catalog", "range", "list", "collection", "collections"]

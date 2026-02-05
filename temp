@@ -1,0 +1,8 @@
+Step 1:
+    cd D:\wamp64\www\opensearch-2.19.0
+    ./opensearch-windows-install.bat
+Step 2:
+    cd D:\opensearch-dashboards-2.19.0\bin
+    ./opensearch-dashboards.bat
+Step 3:
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload

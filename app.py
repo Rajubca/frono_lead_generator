@@ -325,7 +325,7 @@ def process_message(req: PromptRequest):
     # ------------------------------------------------
     context = ""
     lead_hook = None
-
+    
     if intent == "BUYING" and not session["stock_confirmed"]:
 
         if product:
@@ -394,8 +394,8 @@ def process_message(req: PromptRequest):
         if intent == "PRODUCT_INFO":
             session["stage"] = "interest"
 
-        elif intent == "BUYING":
-            session["stage"] = "checkout"
+        # elif intent == "BUYING":
+        #     session["stage"] = "checkout"
 
     # ------------------------------------------------
     # 10. Lead Hooks
