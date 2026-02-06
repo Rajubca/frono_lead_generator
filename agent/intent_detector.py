@@ -24,11 +24,14 @@ CLOSING_PATTERNS = [
 ]
 
 # --- 1. ACTION PATTERNS ---
+# agent/intent_detector.py
+#updated for better buying detection, and added support patterns
 BUYING_PATTERNS = [
-    r"\b(buy|purchase|order|checkout)\b",
+    r"\b(buy|purchase|order|checkout|pay)\b",
     r"\b(i want this|i want it|i'll take it|i will take it)\b",
     r"\b(buy this|buy this one|this one)\b",
-    r"\b(i have to buy|i need to buy)\b"
+    r"\b(i have to buy|i need to buy)\b",
+    r"\b(add to cart|get me|send me)\b"
 ]
 
 

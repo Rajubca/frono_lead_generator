@@ -1,3 +1,5 @@
+from admin.config_manager import ConfigManager
+
 class LeadScorer:
     def __init__(self):
         self.score = 0
@@ -5,29 +7,32 @@ class LeadScorer:
         self.email_captured = False
 
     def update(self, intent: str, text: str):
+        # Fetch dynamic points from Admin Config with hardcoded fallbacks
+        buying_pts = int(ConfigManager.get_setting("buying_points", 20))
+        affirmation_pts = int(ConfigManager.get_setting("affirmation_points", 15))
+        info_pts = int(ConfigManager.get_setting("product_info_points", 10))
+        closing_penalty = int(ConfigManager.get_setting("closing_penalty", -10))
+
         points = 0
         
-        # Scoring Rules
         if intent == "BUYING":
-            points = 20
-        elif intent == "AFFIRMATION": # "Yes, please"
-            points = 15
+            points = buying_pts
+        elif intent == "AFFIRMATION":
+            points = affirmation_pts
         elif intent == "PRODUCT_INFO":
-            points = 10
-        elif "price" in text.lower() or "cost" in text.lower():
-            points = 15
-        
-        # Penalties (to avoid nagging uninterested users)
+            points = info_pts
+        elif any(kw in text.lower() for kw in ["price", "cost"]):
+            points = affirmation_pts # Reuse affirmation points for price intent
         elif intent == "CLOSING":
-            points = -10
+            points = closing_penalty
         
         self.score += points
         self.history.append(f"{intent} (+{points})")
-        
-        # Cap score to prevent overflow logic
         self.score = min(max(self.score, 0), 100)
         
         return self.score
+    
+    
 
     def should_trigger_hook(self):
         # Trigger only if "Hot" (50+) and we haven't got the email yet

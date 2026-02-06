@@ -29,15 +29,13 @@ def next_action(intent: str) -> dict:
         "capture_lead": False
     }
 
-def get_lead_hook(intent: str) -> str:
-    """Returns a high-value hook to capture lead info based on intent."""
-    if intent == "AFFIRMATION":
-        return "Since you're interested, I can email you our latest catalog and a 10% discount code. What's the best email for you?"
+def get_lead_hook(intent: str, product_name: str = None, qty: int = None) -> str:
+    if intent == "BUYING" or intent == "AFFIRMATION":
+        if product_name and qty:
+            return (
+                f"I've got those **{qty} units** of the **{product_name}** ready for you. "
+                "I just need your email to send over the formal quote and delivery timeline. What's the best address for you?"
+            )
+        return "I can have our team send you a formal quote. Would you like to provide your email or phone number?"
     
-    if intent == "BUYING":
-        return "I can have our team send you a formal quote and delivery timeline. Would you like to provide your email or phone number?"
-
-    if intent == "PRODUCT_INFO":
-        return "Would you like the full technical specifications and a comparison guide sent to your inbox?"
-
-    return "Would you like to stay updated with our exclusive seasonal offers? Just leave your email below!"
+    return "Would you like the full technical specs sent to your inbox? Just leave your email below!"

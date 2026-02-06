@@ -31,6 +31,13 @@ from services.email_service import send_email
 from services.email_templates import customer_confirmation_email, sales_notification_email
 from config import SALES_EMAIL, BOT_NAME, STRICT_SYSTEM_PROMPT
 from llm.groq_client import GroqClient # WAS: from llm.llama_client import LLaMAClient
+from admin.config_manager import ConfigManager
+from admin.routes import admin_router
+from admin.config_manager import create_config_index
+
+
+# Inside process_message or chat
+no_data_msg = ConfigManager.get_setting("safe_no_data_reply", "Sorry, I can't help with that.")
 # ---------------------------------------------------
 # GLOBAL STORE FOR MULTI-USER QUEUES
 # ---------------------------------------------------
@@ -51,7 +58,7 @@ RESERVE_TIMEOUT = 600  # 10 minutes
 # APP INIT
 # ---------------------------------------------------
 app = FastAPI(title="Frono AI Agent") # type: ignore
-
+app.include_router(admin_router)
 app.add_middleware(
     CORSMiddleware, # type: ignore
     allow_origins=["*"],  # Adjust for production security
@@ -59,7 +66,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+@app.on_event("startup")
+async def startup_event():
+    # This runs once when the server starts
+    create_config_index()
 # llama = LLaMAClient()
 llama = GroqClient()
 
@@ -69,6 +79,26 @@ llama = GroqClient()
 class PromptRequest(BaseModel): # type: ignore
     prompt: str
     session_id: str  # <--- NEW: Client must send their unique ID
+
+
+@app.get("/admin/settings")
+def get_settings():
+    return ConfigManager._cache
+
+@app.post("/admin/settings/update")
+def update_setting(key: str, value: str):
+    # If it's a number, try to convert it
+    if value.isdigit():
+        value = int(value)
+        
+    client.index(
+        index="frono_configs",
+        id=key,
+        body={"key": key, "value": value, "updated_at": time.time()},
+        refresh=True
+    )
+    ConfigManager._refresh_cache()
+    return {"status": "updated", "key": key, "new_value": value}
 
 # ---------------------------------------------------
 # HEALTH CHECK
@@ -381,6 +411,7 @@ def process_message(req: PromptRequest):
         product = product or session.get("selected_product")
 
         if product:
+            session["selected_product"] = product
             available = product.get("qty", 0)
 
             if available >= requested_qty:
@@ -418,7 +449,7 @@ def process_message(req: PromptRequest):
     # 3️⃣ NORMAL BROWSING / INFO
     # ------------------------------------------------
     else:
-        context = retrieve_context(req.prompt, intent)
+        context = retrieve_context(req.prompt, intent,session=session)
 
 
 

@@ -3,7 +3,8 @@ import time
 from search.opensearch_client import client, search_opensearch
 
 # ---------------- COLLECTION GROUPS ----------------
-MAX_PRODUCTS_TO_SHOW = 3
+from admin.config_manager import ConfigManager
+MAX_PRODUCTS_TO_SHOW = ConfigManager.get_setting("max_products_to_show", 3)
 
 COLLECTION_GROUPS = {
     "Pest Control": [
@@ -46,14 +47,18 @@ def normalize_query(text: str) -> str:
         text = text[:-1]
     return text
 
+import json
+
 def resolve_group_from_query(query: str) -> str | None:
     q = query.lower()
+    # Fetch the dynamic dictionary from Admin Config
+    raw_groups = ConfigManager.get_setting("collection_groups_json", "{}")
+    groups_dict = json.loads(raw_groups) if raw_groups else {}
 
-    for group, keywords in COLLECTION_GROUPS.items():
+    for group, keywords in groups_dict.items():
         for kw in keywords:
             if kw in q:
                 return group
-
     return None
 
 def get_collections_for_group(group: str) -> list[str]:
@@ -127,7 +132,7 @@ def get_product_by_name(identifier: str):
     return results[0] if results else None
 
 
-def retrieve_context(query: str, intent: str) -> str | None:
+def retrieve_context(query: str, intent: str, session: dict | None) -> str | None:
     """
     Truth-gated retriever.
     Returns ONLY verified information or None.
@@ -177,8 +182,12 @@ def retrieve_context(query: str, intent: str) -> str | None:
 
         if results:
             visible = results[:MAX_PRODUCTS_TO_SHOW]
+
             has_more = len(results) > MAX_PRODUCTS_TO_SHOW
 
+            if session is not None:
+                session["menu"] = {str(i+1): r['name'] for i, r in enumerate(visible)}
+            
             items = [
                 f"  • {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
                 for r in visible
@@ -232,12 +241,14 @@ def retrieve_context(query: str, intent: str) -> str | None:
         limit=5
     )
 
-    if product_results:
-        items = [
-            f"- {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
-            for r in product_results
-        ]
-        return "Here are some products that may match your request:\n" + "\n".join(items)
+    if session is not None:
+            session["menu"] = {str(i+1): r['name'] for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])}
+            
+            items = [
+                f"{i+1}. {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
+                for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])
+            ]
+            return "Here are some products that match your request:\n" + "\n".join(items)
 
     # 3️⃣ Policy / Knowledge
     policy_results = search_opensearch(
