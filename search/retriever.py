@@ -1,13 +1,115 @@
-from search.opensearch_client import search_opensearch
-from config import STORE_SUMMARY
+from search.opensearch_client import client, search_opensearch
+import time
+from search.opensearch_client import client, search_opensearch
 
-MAX_TEXT_CHARS = 1500
+# ---------------- COLLECTION GROUPS ----------------
+MAX_PRODUCTS_TO_SHOW = 3
 
-SEASON_KEYWORDS = {
-    "winter": ["heater", "radiator", "warm", "oil", "fan", "quartz"],
-    "christmas": ["tree", "tinsel", "light", "decoration", "garland"],
-    "outdoor": ["garden", "sofa", "gazebo", "rattan"]
+COLLECTION_GROUPS = {
+    "Pest Control": [
+        "Pest Control",
+        "Garden Care",
+        "Home Care",
+        "Home & Garden",
+        "Outdoor Products",
+        "Cleaning",
+        "Household",
+        "AVADA - Best Sellers"
+    ],
+
+    "Heaters": [
+        "Heaters",
+        "Winter Essentials",
+        "Home Heating",
+        "AVADA - Best Sellers"
+    ],
+    "Christmas Products": [
+        "Christmas",
+        "Christmas Lighting",
+        "Christmas Costume",
+        "Sacks & Stockings",
+        "Christmas Nutcrackers"
+    ]
 }
+
+# ---------------- COLLECTION CACHE ----------------
+_COLLECTION_CACHE = {
+    "data": None,
+    "timestamp": 0
+}
+
+_COLLECTION_CACHE_TTL = 300  # seconds (5 minutes)
+
+def normalize_query(text: str) -> str:
+    text = text.lower().strip()
+    if text.endswith("s"):
+        text = text[:-1]
+    return text
+
+def resolve_group_from_query(query: str) -> str | None:
+    q = query.lower()
+
+    for group, keywords in COLLECTION_GROUPS.items():
+        for kw in keywords:
+            if kw in q:
+                return group
+
+    return None
+
+def get_collections_for_group(group: str) -> list[str]:
+    return COLLECTION_GROUPS.get(group, [])
+
+
+def resolve_collection_group(query: str) -> str | None:
+    q = query.lower()
+
+    for group in COLLECTION_GROUPS:
+        if group.lower() in q:
+            return group
+
+    return None
+
+
+
+import time
+
+def get_all_collections():
+    now = time.time()
+
+    if (
+            _COLLECTION_CACHE["data"]
+            and now - _COLLECTION_CACHE["timestamp"] < _COLLECTION_CACHE_TTL
+        ):
+        return _COLLECTION_CACHE["data"]
+
+    res = client.search(
+        index="frono_products",
+        body={
+            "size": 0,
+            "aggs": {
+                "collections": {
+                    "terms": {
+                        "field": "collection",
+                        "size": 100
+                    }
+                }
+            }
+        }
+    )
+
+    buckets = (
+        res.get("aggregations", {})
+           .get("collections", {})
+           .get("buckets", [])
+    )
+
+    collections = [b["key"] for b in buckets]
+
+    _COLLECTION_CACHE["data"] = collections
+    _COLLECTION_CACHE["timestamp"] = now
+
+    return collections
+
 
 def get_product_by_name(identifier: str):
     results = search_opensearch(
@@ -15,19 +117,8 @@ def get_product_by_name(identifier: str):
         query={
             "bool": {
                 "should": [
-                    {
-                        "term": {
-                            "sku.keyword": identifier
-                        }
-                    },
-                    {
-                        "match": {
-                            "name": {
-                                "query": identifier,
-                                "operator": "and"
-                            }
-                        }
-                    }
+                    {"term": {"sku.keyword": identifier}},
+                    {"match": {"name": {"query": identifier, "operator": "and"}}}
                 ]
             }
         },
@@ -36,97 +127,120 @@ def get_product_by_name(identifier: str):
     return results[0] if results else None
 
 
+def retrieve_context(query: str, intent: str) -> str | None:
+    """
+    Truth-gated retriever.
+    Returns ONLY verified information or None.
+    """
 
-def retrieve_context(query: str, intent: str) -> str:
-    """
-    Hybrid retriever:
-    - Handles Category Discovery specifically
-    - Uses frono_products for inventory queries
-    - Uses frono_site_facts for brand/policy queries
-    """
-    q_lower = query.lower()
-    
-    # --- New: Category Discovery Logic ---
-    # If the user is asking "what categories" or "show products"
-    category_keywords = ["category", "categories", "catalog", "range", "list", "collection", "collections"]
-    if any(k in q_lower for k in category_keywords) and len(q_lower.split()) < 6:
+    # 0️⃣ Brand / About
+    if intent == "ABOUT_BRAND":
+        results = search_opensearch(
+            index="frono_site_facts",
+            query={"term": {"type": "about"}},
+            limit=1
+        )
+        if results:
+            return results[0]["content"]
+        # fallback if about page not indexed
         return (
-            "Frono.uk offers a wide range of products including:\n"
-            "- Christmas Shop (Artificial Trees, Tree Stands, LED Lights, and Decorations)\n"
-            "- Seasonal Heating (Oil Filled Radiators, Quartz, Fan, and Halogen Heaters)\n"
-            "- Lighting (LED Parcel, Rope, Curtain, and Twig Tree Lights)\n"
-            "- Garden & Outdoor Furniture (Sofa sets, Gazebos)\n"
-            "- Hot Tubs & Spas\n\n"
-            "Would you like to explore a specific category?"
+            "Hi! Welcome to Frono.uk 👋\n"
+            "We offer Christmas products, heaters, outdoor items, and more.\n"
+            "How can I help you today?"
         )
 
-    # ----------------------------------
-    # 1. Detect Product / Buying Intents
-    # ----------------------------------
-    product_intents = ["BUYING", "PRODUCT_INFO", "AFFIRMATION"]
+    # 1️⃣ Collection / Browse queries
+    # 1️⃣ Dynamic collection-based search
+    collections = get_all_collections()
+    # 1️⃣ Collection Group Based Search
+    normalized_query = normalize_query(query)
+    group = resolve_group_from_query(normalized_query)
 
-    if intent in product_intents:
-        product_results = search_opensearch(
-            index="frono_products",
-            query={
-                "bool": {
-                    "must": [
-                        {
-                            "multi_match": {
-                                "query": query,
-                                "fields": ["name^3", "description^2", "category"],
-                                "fuzziness": "AUTO"
-                            }
-                        }
-                    ],
-                    "filter": [
-                        { "range": { "qty": { "gt": 0 } } }
-                    ]
-                }
-            },
-            limit=5
-        )
 
-        if product_results:
-            items = []
-            for r in product_results:
-                raw_price = r.get('price', 0)
-                try:
-                    # Force the format to £4,999.00 or £49.99 specifically
-                    formatted_price = f"£{float(raw_price):,.2f}" 
-                except (ValueError, TypeError):
-                    formatted_price = f"£{raw_price}"
+    if group:
+        collections = get_collections_for_group(group)
+        results = []
 
-                items.append(
-                    f"- {r['name']} ({formatted_price} | Stock: {r.get('qty', 0)})"
-                )
-                
-            product_text = "\n".join(items)
-            return (
-                "Available products in stock:\n"
-                f"{product_text}\n\n"
-                "You may ask for details, comparison, or ordering."
+        if collections:
+            results = search_opensearch(
+                index="frono_products",
+                query={
+                    "bool": {
+                        "filter": [
+                            {"terms": {"collection": collections}},
+                            {"range": {"qty": {"gt": 0}}}
+                        ]
+                    }
+                },
+                limit=MAX_PRODUCTS_TO_SHOW + 1
             )
 
-        # -------------------------------
-        # Refined Fallback for No Stock
-        # -------------------------------
+        if results:
+            visible = results[:MAX_PRODUCTS_TO_SHOW]
+            has_more = len(results) > MAX_PRODUCTS_TO_SHOW
+
+            items = [
+                f"  • {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
+                for r in visible
+            ]
+
+            response = (
+                f"Here are some {group} products currently available:\n"
+                + "\n".join(items)
+            )
+
+            if has_more:
+                response += (
+                    "\n\n  …and more products are available."
+                    "\n  Type **show more** to see additional options."
+                )
+
+            return response
+
+        # ✅ NOW this executes correctly
+        related_groups = [
+            g for g in COLLECTION_GROUPS.keys()
+            if g != group
+        ][:2]
+
+        suggestions = "\n".join(f"  • {g}" for g in related_groups)
+
         return (
-            "We don't currently carry that specific item, but we have a wide range of "
-            "enabled products in our Shopify store that might interest you:\n"
-            "- Seasonal Heating (Oil Filled Radiators, Fan Heaters)\n"
-            "- Christmas Shop (Trees, LED Lights)\n"
-            "- Garden Furniture & Hot Tubs\n\n"
-            "Would you like to explore one of these collections instead?"
+            f"We don’t currently have available products under **{group}**.\n\n"
+            f"You may want to explore:\n"
+            f"{suggestions}"
         )
 
-    
 
-    # ----------------------------------
-    # 2. Knowledge / Policy Search
-    # ----------------------------------
+    # 2️⃣ Product search
+    product_results = search_opensearch(
+        index="frono_products",
+        query={
+            "bool": {
+                "must": [
+                    {
+                        "multi_match": {
+                            "query": query,
+                            "fields": ["name^3", "description^2", "collection^2"],
+                            "fuzziness": "AUTO"
+                        }
+                    }
+                ],
+                "filter": [{"range": {"qty": {"gt": 0}}}]
+            }
+        },
+        limit=5
+    )
 
-    results = search_opensearch(
+    if product_results:
+        items = [
+            f"- {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
+            for r in product_results
+        ]
+        return "Here are some products that may match your request:\n" + "\n".join(items)
+
+    # 3️⃣ Policy / Knowledge
+    policy_results = search_opensearch(
         index="frono_site_facts",
         query={
             "multi_match": {
@@ -138,24 +252,13 @@ def retrieve_context(query: str, intent: str) -> str:
         limit=3
     )
 
-    # ----------------------------------
-    # 3. Format Knowledge Results
-    # ----------------------------------
-    if results:
-
-        specific_context = "\n".join(
-            f"- {r['title']}: {r['content']}"
-            for r in results
-        )
-
+    if policy_results:
         return (
-            f"{STORE_SUMMARY}\n\n"
-            "Verified information:\n"
-            f"{specific_context}"
+            "Here’s the verified information regarding your question:\n"
+            + "\n".join(
+                f"- {r['title']}: {r['content']}"
+                for r in policy_results
+            )
         )
 
-    # ----------------------------------
-    # 4. Fallback
-    # ----------------------------------
-    return STORE_SUMMARY
-
+    return None

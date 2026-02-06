@@ -36,7 +36,13 @@ from llm.groq_client import GroqClient # WAS: from llm.llama_client import LLaMA
 # ---------------------------------------------------
 # Dictionary to hold a unique queue for each connected user session.
 # Format: { "session_id": Queue() }
+SAFE_NO_DATA_REPLY = (
+    "I don’t have verified information for that yet. "
+    "Could you please contact support@frono.uk or clarify the product, category, or SKU?"
+)
+
 user_queues = {}
+
 # Temporary stock reservations (session-based)
 stock_reservations = {}
 RESERVE_TIMEOUT = 600  # 10 minutes
@@ -231,8 +237,27 @@ def process_message(req: PromptRequest):
     # 3. Detect Intent + Contact
     # ------------------------------------------------
     intent = detect_intent(req.prompt)
+
+    if req.prompt.lower() in {"show more", "more", "next"}:
+        intent = "PRODUCT_INFO"
+
+    # 🔓 Allow policy-related queries to pass through
+    policy_keywords = ["delivery", "shipping", "return", "refund", "warranty", "policy"]
+
+    if any(k in req.prompt.lower() for k in policy_keywords):
+        intent = "POLICY_QUERY"
+
     # --- NEW: DOMAIN GUARDRAIL ---
-    if intent == "OUT_OF_DOMAIN":
+    from search.retriever import get_all_collections
+
+    collections = get_all_collections()
+
+    if intent == "OUT_OF_DOMAIN" and not any(
+        col.lower() in req.prompt.lower()
+        for col in collections
+    ):
+
+
         # Force a specific prompt that mandates the contact message
         final_prompt = (
             "The user asked something outside Frono's business scope. "
@@ -250,6 +275,7 @@ def process_message(req: PromptRequest):
             "scorer": session["scorer"],
             "session": session
         }
+    
     # ✅ ADD THIS LINE to calculate the score based on the message
     scorer.update(intent, req.prompt)
     # -----------------------------
@@ -263,6 +289,29 @@ def process_message(req: PromptRequest):
 
     if email_match and "email" not in contact:
         contact["email"] = email_match.group()
+    # 8️⃣ Convert When Email Arrives (MOVE THIS UP)
+    if (
+        "email" in contact
+        and session.get("selected_product")
+        and session["stage"] in ["interest", "checkout"]
+    ):
+        session["email"] = contact["email"]
+        scorer.email_captured = True
+
+        session["stage"] = "converted"
+        intent = "LEAD_SUBMISSION"
+
+        return {
+            "intent": intent,
+            "final_prompt": (
+                "Thank you! ✅\n\n"
+                "Your order for **"
+                f"{session['selected_product']['name']}** has been received.\n"
+                "Please check your email for confirmation."
+            ),
+            "scorer": scorer,
+            "session": session
+        }
 
     # ------------------------------------------------
     # 4. Extract Quantity
@@ -273,67 +322,68 @@ def process_message(req: PromptRequest):
         session.get("reserved_qty") or 1
     )
 
-    # ------------------------------------------------
-    # 5. Update Topic (ONLY IF PRODUCT KEYWORD)
-    # ------------------------------------------------
-    topic = extract_topic(req.prompt)
+    
 
-    VALID_PRODUCTS = [
-        "oil filled",
-        "radiator",
-        "quartz",
-        "fan heater",
-        "halogen",
-        "heater"
-    ]
-
-    if topic in VALID_PRODUCTS:
-        session["last_topic"] = topic
 
     # ------------------------------------------------
-    # 6. Resolve Product (Re-lock on Topic Change)
+    # 6. Resolve Product (SINGLE SOURCE OF TRUTH)
     # ------------------------------------------------
-
     product = None
 
-    if session.get("last_topic"):
+    # Try resolving product directly from the user message
+    latest_product = get_product_by_name(req.prompt)
 
-        latest_product = get_product_by_name(session["last_topic"])
+    if latest_product:
+        # Reset checkout if product changed
+        if (
+            not session.get("selected_product")
+            or session["selected_product"]["sku"] != latest_product["sku"]
+        ):
+            session["selected_product"] = latest_product
+            session["stock_confirmed"] = False
+            session["order"] = None
+            session["reserved_qty"] = None
 
-        # If user changed product → reset previous order
-        if latest_product:
+            stock_reservations.pop(session_id, None)
 
-            if (
-                not session.get("selected_product")
-                or session["selected_product"]["sku"] != latest_product["sku"]
-            ):
-
-                # 🔄 Reset old checkout
-                session["selected_product"] = latest_product
-                session["stock_confirmed"] = False
-                session["order"] = None
-                session["reserved_qty"] = None
-
-                # Also clear old reservation
-                stock_reservations.pop(session_id, None)
-
-            product = session["selected_product"]
+        product = session["selected_product"]
 
 
     # ------------------------------------------------
     # 7. Reserve Stock ONLY ON BUY
     # ------------------------------------------------
-    context = ""
+    context = None
     lead_hook = None
     
+    # ------------------------------------------------
+    # 1️⃣ EMAIL / LEAD SUBMISSION — HARD STOP
+    # ------------------------------------------------
+    if intent == "LEAD_SUBMISSION" and session.get("selected_product"):
+        context = (
+            f"Thank you! ✅\n\n"
+            f"Your order for **{session['selected_product']['name']}** "
+            f"is being processed.\n"
+            "Please check your email for confirmation."
+        )
+        return {
+            "intent": intent,
+            "final_prompt": context,
+            "scorer": scorer,
+            "session": session
+        }
+
+    # ------------------------------------------------
+    # 2️⃣ BUYING FLOW — STOCK RESERVATION
+    # ------------------------------------------------
     if intent == "BUYING" and not session["stock_confirmed"]:
 
-        if product:
+        # 🔐 Always fall back to selected product
+        product = product or session.get("selected_product")
 
+        if product:
             available = product.get("qty", 0)
 
             if available >= requested_qty:
-
                 order = {
                     "sku": product["sku"],
                     "name": product["name"],
@@ -344,29 +394,48 @@ def process_message(req: PromptRequest):
 
                 stock_reservations[session_id] = order
                 session["order"] = order
-
                 session["stock_confirmed"] = True
                 session["reserved_qty"] = requested_qty
                 session["stage"] = "checkout"
 
                 context = (
-                    f"CONFIRMED: {product['name']} is available. "
-                    f"Price: £{product['price']}."
+                    f"CONFIRMED: **{product['name']}** is available.\n"
+                    f"Price: £{product['price']}.\n\n"
+                    "Please provide your email address to continue."
                 )
-
             else:
                 session["stage"] = "interest"
-
                 context = (
                     f"NOTICE: Only {available} units left. "
                     f"You requested {requested_qty}."
                 )
-
         else:
-            context = "I couldn't identify the product. Please specify again."
+            context = (
+                "Please confirm which product you would like to buy."
+            )
 
+    # ------------------------------------------------
+    # 3️⃣ NORMAL BROWSING / INFO
+    # ------------------------------------------------
     else:
         context = retrieve_context(req.prompt, intent)
+
+
+
+    # 🔐 TRUTH GATE — NO VERIFIED DATA
+    if not context:
+        session["history"].append({
+            "user": req.prompt,
+            "bot": SAFE_NO_DATA_REPLY
+        })
+
+        return {
+            "intent": intent,
+            "final_prompt": SAFE_NO_DATA_REPLY,
+            "scorer": scorer,
+            "session": session
+        }
+
 
     # ------------------------------------------------
     # 8. Convert When Email Arrives

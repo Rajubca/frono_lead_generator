@@ -6,6 +6,11 @@ llama = GroqClient()
 # --- PATTERNS ---
 EMAIL_PATTERN = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
 
+AVAILABILITY_PATTERNS = [
+    r"\b(do you have|do we have|is there|are there|available)\b"
+]
+
+
 AFFIRMATION_PATTERNS = [
     r"\b(yes|yeah|sure|yep|please|interested|do it|send it|i want)\b"
 ]
@@ -20,9 +25,12 @@ CLOSING_PATTERNS = [
 
 # --- 1. ACTION PATTERNS ---
 BUYING_PATTERNS = [
-    r"\b(buy|order|purchase|checkout|price|cost|pay)\b",
-    r"\b(add to cart|place order|how much)\b"
+    r"\b(buy|purchase|order|checkout)\b",
+    r"\b(i want this|i want it|i'll take it|i will take it)\b",
+    r"\b(buy this|buy this one|this one)\b",
+    r"\b(i have to buy|i need to buy)\b"
 ]
+
 
 SUPPORT_PATTERNS = [
     r"\b(return|refund|shipping|delivery|warranty|track)\b",
@@ -81,6 +89,8 @@ def detect_intent(text: str) -> str:
     Priority: Capture Email > Identity > Hot Leads (Yes) > Buying > Support > Product Info > Browsing.
     """
     q = text.lower().strip()
+    if re.fullmatch(r"(hi|hello|hey)", text.lower().strip()):
+        return "ABOUT_BRAND"
 
     # ---------------------------------------------------------
     # 1. CRITICAL: LEAD CAPTURE (Highest Priority)
@@ -103,6 +113,10 @@ def detect_intent(text: str) -> str:
     # Must be BEFORE Browsing check so "Yes" isn't treated as a greeting.
     if match_patterns(q, AFFIRMATION_PATTERNS) and len(q.split()) < 6:
         return "AFFIRMATION"
+
+    # inside detect_intent(), after BRAND but before BUYING
+    if match_patterns(q, AVAILABILITY_PATTERNS):
+        return "PRODUCT_INFO"
 
     # ---------------------------------------------------------
     # 4. HIGH VALUE INTENTS (Buying & Support)
