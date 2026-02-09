@@ -194,16 +194,21 @@
              // Append to raw text tracker
              currentBotMessageDiv._rawText = (currentBotMessageDiv._rawText || "") + event.data;
 
-             // --- FIX: Force format numbered lists if the LLM skips newlines ---
-             // Only run this replacement when the stream is near completion or periodically
-             // But doing it on every chunk is okay-ish if we are careful.
-             // Simpler approach: Replace 'X. ' with '\n\nX. ' if not preceded by newline
-
+             // --- FIX: Robust list formatting ---
+             // Find any non-newline character followed by a numbered list item (1., 2., 10.)
+             // Capture group 1: The preceding char
+             // Capture group 2: The numbered item (e.g. "2.")
+             // Replace with: char + double newline + numbered item
              let formattedText = currentBotMessageDiv._rawText;
 
-             // Regex: Find digit + dot + space that is NOT preceded by newline
-             // We add a double newline to force Markdown list
-             formattedText = formattedText.replace(/([^\n])\s+(\d+\.)\s/g, '\n\n ');
+             // Regex explanation:
+             // ([^\n])      -> Any char that is NOT a newline
+             // \s*          -> Optional whitespace
+             // (\d+\.)      -> A number followed by a dot (capture group 2)
+             formattedText = formattedText.replace(/([^\n])\s*(\d+\.)/g, '\n\n');
+
+             // Also handle bullet points if they get collapsed
+             formattedText = formattedText.replace(/([^\n])\s*([•-])\s+/g, '\n\n ');
 
              // Render Markdown
              try {
@@ -331,8 +336,9 @@
     if (sender === "bot") {
         let formattedText = text;
 
-        // Apply the regex fix to initial messages too if needed
-        formattedText = formattedText.replace(/([^\n])\s+(\d+\.)\s/g, '\n\n ');
+        // Robust list fix
+        formattedText = formattedText.replace(/([^\n])\s*(\d+\.)/g, '\n\n');
+        formattedText = formattedText.replace(/([^\n])\s*([•-])\s+/g, '\n\n ');
 
         try {
            textNode.innerHTML = marked.parse(formattedText);

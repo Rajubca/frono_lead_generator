@@ -194,8 +194,8 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             ]
 
             response = (
-                f"Here are some {group} products currently available:\n"
-                + "\n".join(items)
+                f"Here are some {group} products currently available:\n\n"
+                + "\n\n".join(items)
             )
 
             if has_more:
@@ -248,7 +248,8 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
                 f"{i+1}. {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
                 for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])
             ]
-            return "Here are some products that match your request:\n" + "\n".join(items)
+            # --- FIX: Force double newlines in context ---
+            return "Here are some products that match your request:\n\n" + "\n\n".join(items)
 
     # 3️⃣ Policy / Knowledge
     policy_results = search_opensearch(
