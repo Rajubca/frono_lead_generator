@@ -65,13 +65,17 @@
         .product-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .product-image { width: 50px; height: 50px; border-radius: 8px; background: #f0f0f0; object-fit: cover; }
         .product-info { flex: 1; }
-        .product-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; line-height: 1.2; }
-        .product-meta { font-size: 12px; color: #666; display: flex; gap: 8px; align-items: center; }
+        .product-name { font-weight: 600; font-size: 13px; margin-bottom: 4px; line-height: 1.2; }
+        .product-meta { font-size: 12px; color: #666; display: flex; justify-content: space-between; align-items: center; }
         .product-price { color: #000; font-weight: 700; }
-        .stock-badge { background: #eefdf5; color: #10b981; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
-        .stock-badge.low { background: #fef2f2; color: #ef4444; }
 
-        /* --- Option Buttons (Categories/Actions) --- */
+        .product-select-btn {
+            background: #000; color: #fff; border: none; padding: 4px 10px;
+            border-radius: 12px; font-size: 11px; cursor: pointer; font-weight: 500;
+        }
+        .product-select-btn:hover { background: #333; }
+
+        /* --- Option Buttons --- */
         .options-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
         .option-btn {
             background: #fff; border: 1px solid #000; color: #000;
@@ -138,7 +142,15 @@
 
   /* ================= INIT ================= */
   document.addEventListener("DOMContentLoaded", function() {
-      appendMessage("Hi! I'm Frono BuddyAI. 👋 How can I help you today?", "bot");
+      // 1. Initial Greeting
+      appendMessage("Welcome to Frono.uk! How can I help you today?", "bot");
+
+      // 2. Initial Options (Search/Buy vs Support)
+      renderRichContent([
+          { type: "option", label: "Search / Buy Products", value: "Show me popular products" },
+          { type: "option", label: "Customer Support", value: "I need customer support" }
+      ]);
+
       setupEventSource();
       setInterval(checkConnection, 10000); 
   });
@@ -151,7 +163,6 @@
       eventSource.onopen = () => updateStatus("online");
       eventSource.onerror = () => updateStatus("offline");
 
-      // Handle Structured Products / Options
       eventSource.addEventListener("products", function(event) {
           try {
               const data = JSON.parse(event.data);
@@ -159,22 +170,17 @@
           } catch(e) { console.error("Error parsing rich content:", e); }
       });
 
-      // Handle Text Stream
       eventSource.onmessage = function (event) {
           if (!currentBotMessageDiv) return;
+          if (event.data === "END") return;
           
-          if (event.data === "END") {
-             // End of stream
-          } else {
-             currentBotMessageDiv._rawText = (currentBotMessageDiv._rawText || "") + event.data;
-             // Render Text via Markdown
-             try {
-                currentBotMessageDiv.innerHTML = marked.parse(currentBotMessageDiv._rawText);
-             } catch(e) {
-                currentBotMessageDiv.textContent = currentBotMessageDiv._rawText;
-             }
-             scrollToBottom();
+          currentBotMessageDiv._rawText = (currentBotMessageDiv._rawText || "") + event.data;
+          try {
+             currentBotMessageDiv.innerHTML = marked.parse(currentBotMessageDiv._rawText);
+          } catch(e) {
+             currentBotMessageDiv.textContent = currentBotMessageDiv._rawText;
           }
+          scrollToBottom();
       };
 
       eventSource.addEventListener("end", function () {
@@ -187,14 +193,13 @@
       if (!items || items.length === 0) return;
       const body = document.getElementById("chat-body");
 
-      // Check type of items
       const isOption = items[0].type === "option";
 
       if (isOption) {
-          // --- RENDER OPTION BUTTONS ---
+          // --- OPTIONS (Buttons) ---
           const container = document.createElement("div");
           container.className = "options-container";
-          container.style.marginLeft = "16px"; // Align with bot bubbles
+          container.style.marginLeft = "16px";
 
           items.forEach(opt => {
               const btn = document.createElement("button");
@@ -210,7 +215,7 @@
           body.appendChild(container);
 
       } else {
-          // --- RENDER PRODUCT CARDS ---
+          // --- PRODUCT CARDS ---
           const container = document.createElement("div");
           container.style.marginBottom = "10px";
           container.style.marginLeft = "10px";
@@ -222,9 +227,15 @@
               const price = parseFloat(p.price).toFixed(2);
               const imgSrc = p.image || "https://placehold.co/50x50?text=Img";
 
-              let stockBadge = p.qty < 5
-                  ? `<span class="stock-badge low">Only ${p.qty} left</span>`
-                  : `<span class="stock-badge">In Stock</span>`;
+              // NEW: Select Button Logic
+              const selectBtn = document.createElement("button");
+              selectBtn.className = "product-select-btn";
+              selectBtn.textContent = "Select";
+              selectBtn.onclick = () => {
+                  const input = document.getElementById("chat-text");
+                  input.value = `I want to select ${p.name}`;
+                  handleUserSend();
+              };
 
               card.innerHTML = `
                   <img src="${imgSrc}" class="product-image" alt="${p.name}">
@@ -232,15 +243,15 @@
                       <div class="product-name">${p.name}</div>
                       <div class="product-meta">
                           <span class="product-price">£${price}</span>
-                          ${stockBadge}
                       </div>
                   </div>
               `;
+              // Append button safely
+              card.querySelector(".product-meta").appendChild(selectBtn);
+
               container.appendChild(card);
           });
 
-          // "More" Button Placeholder (Visual)
-          // In a real app, this would trigger pagination
           if (items.length >= 3) {
              const moreBtn = document.createElement("button");
              moreBtn.className = "option-btn";
@@ -290,7 +301,7 @@
       } else {
           textNode.textContent = text;
       }
-      
+
       div.appendChild(textNode);
       const timeSpan = document.createElement("span");
       timeSpan.className = "msg-time";

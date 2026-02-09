@@ -193,12 +193,13 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
             if session is not None:
                 session["menu"] = {str(i+1): r['name'] for i, r in enumerate(visible)}
             
-            # --- FIX: Minimal text context, data sent via UI ---
+            # --- FIX: STRICT SILENCE. DO NOT SEND PRODUCT NAMES TO LLM ---
             context_text = (
                 f"FOUND_PRODUCTS: {len(visible)} items in category '{group}'. "
-                "The user will see them as UI Cards. "
-                "Reply briefly: 'Here are some popular {group} products:' "
-                "and ask if they want to see more."
+                "CRITICAL: The products are ALREADY displayed in the UI. "
+                "Do NOT list them again. "
+                "Reply EXACTLY with: 'Here are the options for {group}:' "
+                "and ask if they would like to select one."
             )
 
             return context_text, product_list
@@ -207,7 +208,7 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
         related_groups = [
             g for g in COLLECTION_GROUPS.keys()
             if g != group
-        ][:3] # Show up to 3 options
+        ][:3]
 
         options_list = [
             {"type": "option", "label": g, "value": g}
@@ -257,10 +258,12 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
             ]
 
             if product_list:
+                # --- FIX: STRICT SILENCE FOR SEARCH ---
                 context_text = (
                     f"FOUND_PRODUCTS: {len(product_list)} items matching '{query}'. "
-                    "The user will see them as UI Cards. "
-                    "Reply briefly: 'I found these products for you:'"
+                    "CRITICAL: The products are displayed in the UI. "
+                    "Do NOT list them. "
+                    "Reply EXACTLY with: 'I found these products for you:'"
                 )
                 return context_text, product_list
 
@@ -286,15 +289,10 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
             ), []
         )
 
-    # --- FINAL FALLBACK: SHOW MAIN CATEGORIES ---
-    main_groups = list(COLLECTION_GROUPS.keys())[:4]
-    options_list = [
-        {"type": "option", "label": g, "value": g}
-        for g in main_groups
-    ]
-
+    # --- STRICT FALLBACK: NO DATA ---
+    # Return empty list, force support message
     return (
-        "I couldn't find specific products for that query. "
-        "Please choose a category from the options below.",
-        options_list
+        "No verified information found. "
+        "Reply EXACTLY with: 'I am unable to find information on that. Please contact support@frono.uk for assistance.'",
+        []
     )
