@@ -135,7 +135,8 @@ def get_product_by_name(identifier: str):
 def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str | None, list]:
     """
     Truth-gated retriever.
-    Returns (context_text, list_of_product_dicts).
+    Returns (context_text, list_of_items).
+    list_of_items can be products OR category options.
     """
 
     # 0️⃣ Brand / About
@@ -147,7 +148,7 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
         )
         if results:
             return results[0]["content"], []
-        # fallback if about page not indexed
+
         return (
             "Hi! Welcome to Frono.uk 👋\n"
             "We offer Christmas products, heaters, outdoor items, and more.\n"
@@ -155,12 +156,8 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
         )
 
     # 1️⃣ Collection / Browse queries
-    # 1️⃣ Dynamic collection-based search
-    collections = get_all_collections()
-    # 1️⃣ Collection Group Based Search
     normalized_query = normalize_query(query)
     group = resolve_group_from_query(normalized_query)
-
 
     if group:
         collections = get_collections_for_group(group)
@@ -188,47 +185,41 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
                     "name": r["name"],
                     "price": float(r["price"]),
                     "qty": r.get("qty", 0),
-                    "image": r.get("image", None) # Ensure image is passed if available
+                    "image": r.get("image", None)
                 }
                 for r in visible
             ]
 
-            has_more = len(results) > MAX_PRODUCTS_TO_SHOW
-
             if session is not None:
                 session["menu"] = {str(i+1): r['name'] for i, r in enumerate(visible)}
             
-            items = [
-                f"{i+1}. {r['name']} (£{float(r['price']):,.2f})"
-                for i, r in enumerate(visible)
-            ]
-
-            response = (
-                f"Here are some {group} products currently available:\n"
-                + "\n".join(items)
+            # --- FIX: Minimal text context, data sent via UI ---
+            context_text = (
+                f"FOUND_PRODUCTS: {len(visible)} items in category '{group}'. "
+                "The user will see them as UI Cards. "
+                "Reply briefly: 'Here are some popular {group} products:' "
+                "and ask if they want to see more."
             )
 
-            if has_more:
-                response += (
-                    "\n\n…and more products are available."
-                    "\nType **show more** to see additional options."
-                )
+            return context_text, product_list
 
-            return response, product_list
-
-        # ✅ NOW this executes correctly
+        # --- NO PRODUCTS FOUND -> SUGGEST CATEGORIES ---
         related_groups = [
             g for g in COLLECTION_GROUPS.keys()
             if g != group
-        ][:2]
+        ][:3] # Show up to 3 options
 
-        suggestions = "\n".join(f"• {g}" for g in related_groups)
+        options_list = [
+            {"type": "option", "label": g, "value": g}
+            for g in related_groups
+        ]
 
-        return (
-            f"We don’t currently have available products under **{group}**.\n\n"
-            f"You may want to explore:\n"
-            f"{suggestions}", []
+        context_text = (
+            f"No products found for '{group}'. "
+            "Suggest these other categories to the user."
         )
+
+        return context_text, options_list
 
 
     # 2️⃣ Product search
@@ -265,14 +256,15 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
                 for r in product_results[:MAX_PRODUCTS_TO_SHOW]
             ]
 
-            items = [
-                f"{i+1}. {r['name']} (£{float(r['price']):,.2f})"
-                for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])
-            ]
+            if product_list:
+                context_text = (
+                    f"FOUND_PRODUCTS: {len(product_list)} items matching '{query}'. "
+                    "The user will see them as UI Cards. "
+                    "Reply briefly: 'I found these products for you:'"
+                )
+                return context_text, product_list
 
-            return "Here are some products that match your request:\n" + "\n".join(items), product_list
-
-    # 3️⃣ Policy / Knowledge
+    # 3️⃣ Policy / Knowledge (Fallback if no products)
     policy_results = search_opensearch(
         index="frono_site_facts",
         query={
@@ -294,4 +286,15 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str
             ), []
         )
 
-    return None, []
+    # --- FINAL FALLBACK: SHOW MAIN CATEGORIES ---
+    main_groups = list(COLLECTION_GROUPS.keys())[:4]
+    options_list = [
+        {"type": "option", "label": g, "value": g}
+        for g in main_groups
+    ]
+
+    return (
+        "I couldn't find specific products for that query. "
+        "Please choose a category from the options below.",
+        options_list
+    )
