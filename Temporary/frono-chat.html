@@ -75,18 +75,27 @@
         /* Markdown Styles */
         .message.bot p { margin-bottom: 6px; }
         .message.bot p:last-child { margin-bottom: 0; }
-
-        .message.bot ul, .message.bot ol {
-            margin: 4px 0 8px 18px;
-            padding-left: 0;
-        }
-
-        .message.bot li {
-            margin-bottom: 2px;
-            list-style-type: decimal; /* Ensure numbers */
-        }
-
+        .message.bot ul, .message.bot ol { margin: 4px 0 8px 18px; padding-left: 0; }
+        .message.bot li { margin-bottom: 2px; list-style-type: decimal; }
         .message.bot strong { font-weight: 600; }
+
+        /* --- Product Card Styles (NEW) --- */
+        .product-card {
+            background: #fff; border: 1px solid #eee; border-radius: 12px; padding: 12px;
+            margin-top: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            display: flex; gap: 12px; align-items: center;
+        }
+        .product-image {
+            width: 50px; height: 50px; border-radius: 8px; background: #f0f0f0; object-fit: cover;
+        }
+        .product-info { flex: 1; }
+        .product-name { font-weight: 600; font-size: 14px; margin-bottom: 4px; line-height: 1.2; }
+        .product-meta { font-size: 12px; color: #666; display: flex; gap: 8px; align-items: center; }
+        .product-price { color: #000; font-weight: 700; }
+        .stock-badge {
+            background: #eefdf5; color: #10b981; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;
+        }
+        .stock-badge.low { background: #fef2f2; color: #ef4444; }
 
         /* Timestamps */
         .msg-time { display: block; font-size: 10px; margin-top: 6px; opacity: 0.7; text-align: right; }
@@ -190,6 +199,16 @@
           updateStatus("online");
       };
 
+      // Handle custom 'products' event
+      eventSource.addEventListener("products", function(event) {
+          try {
+              const products = JSON.parse(event.data);
+              renderProductList(products);
+          } catch(e) {
+              console.error("Error parsing products:", e);
+          }
+      });
+
       eventSource.onmessage = function (event) {
           // This listens for data pushed into OUR queue
           if (!currentBotMessageDiv) {
@@ -206,18 +225,8 @@
 
              let formattedText = currentBotMessageDiv._rawText;
 
-             // --- ADJUSTED REGEX: Only add newline if needed ---
-             // We still want newlines before lists to make Markdown work,
-             // but 'marked' handles single newlines well for lists IF there's a preceding blank line.
-             // Actually, standard Markdown often requires a blank line before a list.
-             // So we enforce ONE double newline before the FIRST item, and just newlines between items.
-
-             // 1. Ensure list starts on new line (blank line before first item)
-             // Look for text -> newline -> number. If no double newline, add one.
-             // But simpler: just enforce double newline before any number if not present.
+             // --- REGEX FALLBACK (Still useful for non-product lists) ---
              formattedText = formattedText.replace(/([^\n])\s*(\d+\.)\s/g, '\n\n ');
-
-             // 2. Bullet points
              formattedText = formattedText.replace(/([^\n])\s*([•-])\s+/g, '\n\n ');
 
              try {
@@ -239,6 +248,48 @@
       eventSource.onerror = function () {
           updateStatus("offline");
       };
+  }
+
+  // NEW: Function to render product cards
+  function renderProductList(products) {
+      if (!products || products.length === 0) return;
+
+      const body = document.getElementById("chat-body");
+      const container = document.createElement("div");
+      container.style.marginBottom = "10px";
+      container.style.marginLeft = "10px"; // Align nicely
+
+      products.forEach(p => {
+          const card = document.createElement("div");
+          card.className = "product-card";
+
+          const price = parseFloat(p.price).toFixed(2);
+          // Simple placeholder image if none provided
+          const imgSrc = p.image || "https://placehold.co/50x50?text=Product";
+
+          // Stock Logic for Badge
+          let stockBadge = "";
+          if (p.qty < 5) {
+               stockBadge = `<span class="stock-badge low">Only ${p.qty} left</span>`;
+          } else {
+               stockBadge = `<span class="stock-badge">In Stock</span>`;
+          }
+
+          card.innerHTML = `
+              <img src="${imgSrc}" class="product-image" alt="${p.name}">
+              <div class="product-info">
+                  <div class="product-name">${p.name}</div>
+                  <div class="product-meta">
+                      <span class="product-price">£${price}</span>
+                      ${stockBadge}
+                  </div>
+              </div>
+          `;
+          container.appendChild(card);
+      });
+
+      body.appendChild(container);
+      scrollToBottom();
   }
 
   function streamResponse(prompt) {

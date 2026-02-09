@@ -132,10 +132,10 @@ def get_product_by_name(identifier: str):
     return results[0] if results else None
 
 
-def retrieve_context(query: str, intent: str, session: dict | None) -> str | None:
+def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str | None, list]:
     """
     Truth-gated retriever.
-    Returns ONLY verified information or None.
+    Returns (context_text, list_of_product_dicts).
     """
 
     # 0️⃣ Brand / About
@@ -146,12 +146,12 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             limit=1
         )
         if results:
-            return results[0]["content"]
+            return results[0]["content"], []
         # fallback if about page not indexed
         return (
             "Hi! Welcome to Frono.uk 👋\n"
             "We offer Christmas products, heaters, outdoor items, and more.\n"
-            "How can I help you today?"
+            "How can I help you today?", []
         )
 
     # 1️⃣ Collection / Browse queries
@@ -182,26 +182,30 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
 
         if results:
             visible = results[:MAX_PRODUCTS_TO_SHOW]
+            product_list = [
+                {
+                    "sku": r.get("sku"),
+                    "name": r["name"],
+                    "price": float(r["price"]),
+                    "qty": r.get("qty", 0),
+                    "image": r.get("image", None) # Ensure image is passed if available
+                }
+                for r in visible
+            ]
 
             has_more = len(results) > MAX_PRODUCTS_TO_SHOW
 
             if session is not None:
                 session["menu"] = {str(i+1): r['name'] for i, r in enumerate(visible)}
             
-            # --- FIX: Proper numbered formatting + No Stock unless requested ---
-            items = []
-            for i, r in enumerate(visible):
-                price = f"£{float(r['price']):,.2f}"
-                # Only show stock if low (urgency) or explicitly buying
-                stock_info = ""
-                if intent == "BUYING" or r.get("qty", 0) < 5:
-                    stock_info = f" (Only {r.get('qty', 0)} left!)"
-
-                items.append(f"{i+1}. **{r['name']}** — {price}{stock_info}")
+            items = [
+                f"{i+1}. {r['name']} (£{float(r['price']):,.2f})"
+                for i, r in enumerate(visible)
+            ]
 
             response = (
                 f"Here are some {group} products currently available:\n"
-                + "\n".join(items) # Use single newline for compact list
+                + "\n".join(items)
             )
 
             if has_more:
@@ -210,7 +214,7 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
                     "\nType **show more** to see additional options."
                 )
 
-            return response
+            return response, product_list
 
         # ✅ NOW this executes correctly
         related_groups = [
@@ -223,7 +227,7 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
         return (
             f"We don’t currently have available products under **{group}**.\n\n"
             f"You may want to explore:\n"
-            f"{suggestions}"
+            f"{suggestions}", []
         )
 
 
@@ -250,18 +254,23 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
     if session is not None:
             session["menu"] = {str(i+1): r['name'] for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])}
             
-            items = []
-            for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW]):
-                price = f"£{float(r['price']):,.2f}"
-                stock_info = ""
-                # Only show stock if low or buying intent
-                if intent == "BUYING" or r.get("qty", 0) < 5:
-                    stock_info = f" (Only {r.get('qty', 0)} left!)"
+            product_list = [
+                {
+                    "sku": r.get("sku"),
+                    "name": r["name"],
+                    "price": float(r["price"]),
+                    "qty": r.get("qty", 0),
+                    "image": r.get("image", None)
+                }
+                for r in product_results[:MAX_PRODUCTS_TO_SHOW]
+            ]
 
-                items.append(f"{i+1}. **{r['name']}** — {price}{stock_info}")
+            items = [
+                f"{i+1}. {r['name']} (£{float(r['price']):,.2f})"
+                for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])
+            ]
 
-            # --- FIX: Force single newlines in context for cleaner list ---
-            return "Here are some products that match your request:\n" + "\n".join(items)
+            return "Here are some products that match your request:\n" + "\n".join(items), product_list
 
     # 3️⃣ Policy / Knowledge
     policy_results = search_opensearch(
@@ -282,7 +291,7 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             + "\n".join(
                 f"- {r['title']}: {r['content']}"
                 for r in policy_results
-            )
+            ), []
         )
 
-    return None
+    return None, []

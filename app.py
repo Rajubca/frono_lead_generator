@@ -1,7 +1,7 @@
-
 import uuid
 import time
 import re
+import json
 from queue import Queue
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -224,7 +224,8 @@ def chat(req: PromptRequest, background_tasks: BackgroundTasks):
     return {
         "intent": result["intent"],
         "reply": reply,
-        "lead_score": scorer.score
+        "lead_score": scorer.score,
+        "products": result.get("products", []) # Pass structured products
     }
 
 # ---------------------------------------------------
@@ -303,7 +304,8 @@ def process_message(req: PromptRequest):
             "intent": "OUT_OF_DOMAIN",
             "final_prompt": final_prompt,
             "scorer": session["scorer"],
-            "session": session
+            "session": session,
+            "products": []
         }
     
     # ✅ ADD THIS LINE to calculate the score based on the message
@@ -340,7 +342,8 @@ def process_message(req: PromptRequest):
                 "Please check your email for confirmation."
             ),
             "scorer": scorer,
-            "session": session
+            "session": session,
+            "products": []
         }
 
     # ------------------------------------------------
@@ -384,6 +387,7 @@ def process_message(req: PromptRequest):
     # ------------------------------------------------
     context = None
     lead_hook = None
+    products = [] # Capture structured products
     
     # ------------------------------------------------
     # 1️⃣ EMAIL / LEAD SUBMISSION — HARD STOP
@@ -399,7 +403,8 @@ def process_message(req: PromptRequest):
             "intent": intent,
             "final_prompt": context,
             "scorer": scorer,
-            "session": session
+            "session": session,
+            "products": []
         }
 
     # ------------------------------------------------
@@ -449,7 +454,13 @@ def process_message(req: PromptRequest):
     # 3️⃣ NORMAL BROWSING / INFO
     # ------------------------------------------------
     else:
-        context = retrieve_context(req.prompt, intent,session=session)
+        # retrieve_context now returns tuple: (text, product_list)
+        context_result = retrieve_context(req.prompt, intent, session=session)
+        if isinstance(context_result, tuple):
+             context, products = context_result
+        else:
+             context = context_result
+             products = [] # Fallback
 
 
 
@@ -464,7 +475,8 @@ def process_message(req: PromptRequest):
             "intent": intent,
             "final_prompt": SAFE_NO_DATA_REPLY,
             "scorer": scorer,
-            "session": session
+            "session": session,
+            "products": []
         }
 
 
@@ -562,7 +574,8 @@ def process_message(req: PromptRequest):
         "intent": intent,
         "final_prompt": final_prompt,
         "scorer": scorer,
-        "session": session
+        "session": session,
+        "products": products # Pass the structured list!
     }
 # ---------------------------------------------------
 
@@ -582,6 +595,14 @@ def chat_stream(req: PromptRequest, background_tasks: BackgroundTasks):
     session = result["session"]
     scorer = result["scorer"]
     final_prompt = result["final_prompt"]
+
+    # NEW: Send structured product data as an initial SSE event if present
+    products = result.get("products", [])
+    if products:
+        # Send a special JSON event before the stream
+        product_json = json.dumps(products)
+        user_queue.put(f"__PRODUCTS__:{product_json}")
+
 
     # --- DEBUG LOGS (Now safe to use 'session') ---
     print(f"--- STREAM START CHECK ---")
@@ -678,6 +699,12 @@ def chat_stream_events(session_id: str, request: Request):
                     # We keep the queue alive for the session duration
                     continue 
                 
+                # Check for special product payload
+                if token.startswith("__PRODUCTS__:"):
+                     payload = token.replace("__PRODUCTS__:", "")
+                     yield f"event: products\ndata: {payload}\n\n"
+                     continue
+
                 yield f"data: {token}\n\n"
             else:
                 # Sleep briefly to prevent CPU spike while waiting for tokens
