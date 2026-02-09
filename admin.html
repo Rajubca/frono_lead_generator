@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frono Admin | Secure Access</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto">
+        <div id="auth-error" class="hidden flex flex-col items-center justify-center min-h-[60vh] bg-white rounded-xl shadow-lg p-12 text-center">
+            <div class="bg-red-100 p-4 rounded-full mb-4">
+                <svg class="w-12 h-12 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m0 0v2m0-2h2m-2 0H10m-2-6a4 4 0 018 0v4M7 10h10a2 2 0 012 2v7a2 2 0 01-2 2H7a2 2 0 01-2-2v-7a2 2 0 012-2z"></path>
+                </svg>
+            </div>
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">Invalid or Missing Admin API Key</h1>
+            <p class="text-gray-600 mb-6">You do not have permission to access the Frono Configuration Suite.</p>
+            <input type="password" id="api-key-input" placeholder="Enter Admin API Key" class="border p-2 rounded w-64 mb-4 text-center">
+            <button onclick="saveKeyAndRetry()" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition">Authenticate</button>
+        </div>
+
+        <div id="admin-panel" class="hidden">
+            <header class="mb-8 border-b pb-4 flex justify-between items-end">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800">Frono Admin Dashboard</h1>
+                    <p class="text-gray-600">Connected: <span id="status-badge" class="text-green-600 font-bold">Secure</span></p>
+                </div>
+                <button onclick="logout()" class="text-sm text-red-500 underline">Logout</button>
+            </header>
+
+            <div id="config-container" class="grid gap-6">
+                </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "http://localhost:8000/admin";
+        let ADMIN_KEY = localStorage.getItem("frono_admin_key") || "";
+
+        async function init() {
+            if (!ADMIN_KEY) {
+                showError();
+                return;
+            }
+            await loadConfigs();
+        }
+
+        async function loadConfigs() {
+            try {
+                const res = await fetch(`${API_BASE}/settings`, {
+                    headers: { "X-API-Key": ADMIN_KEY }
+                });
+
+                if (res.status === 401) {
+                    showError();
+                    return;
+                }
+
+                const configs = await res.json();
+                showPanel();
+                renderConfigs(configs);
+            } catch (err) {
+                console.error("Connection error:", err);
+            }
+        }
+
+        function renderConfigs(configs) {
+            const container = document.getElementById('config-container');
+            container.innerHTML = '';
+            Object.entries(configs).forEach(([key, value]) => {
+                const card = document.createElement('div');
+                card.className = "bg-white p-6 rounded-lg shadow-sm border border-gray-200";
+                
+                let displayValue = value;
+                let isJson = false;
+                try {
+                    if (typeof value === 'string' && (value.startsWith('{') || value.startsWith('['))) {
+                        displayValue = JSON.stringify(JSON.parse(value), null, 2);
+                        isJson = true;
+                    }
+                } catch (e) {}
+
+                card.innerHTML = `
+                    <h3 class="font-mono text-blue-600 font-bold mb-2">${key}</h3>
+                    ${isJson ? 
+                        `<textarea id="input-${key}" class="w-full font-mono text-sm p-2 border rounded h-32 bg-gray-50">${displayValue}</textarea>` :
+                        `<input id="input-${key}" type="text" value="${value}" class="w-full p-2 border rounded bg-gray-50">`
+                    }
+                    <button onclick="updateSetting('${key}')" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition">Update</button>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        async function updateSetting(key) {
+            const val = document.getElementById(`input-${key}`).value;
+            const res = await fetch(`${API_BASE}/settings/update?key=${key}&value=${encodeURIComponent(val)}`, {
+                method: 'POST',
+                headers: { "X-API-Key": ADMIN_KEY }
+            });
+            if (res.ok) alert("Updated successfully!");
+            else alert("Update failed. Check Authorization.");
+        }
+
+        function showError() {
+            document.getElementById('auth-error').classList.remove('hidden');
+            document.getElementById('admin-panel').classList.add('hidden');
+        }
+
+        function showPanel() {
+            document.getElementById('auth-error').classList.add('hidden');
+            document.getElementById('admin-panel').classList.remove('hidden');
+        }
+
+        function saveKeyAndRetry() {
+            ADMIN_KEY = document.getElementById('api-key-input').value;
+            localStorage.setItem("frono_admin_key", ADMIN_KEY);
+            init();
+        }
+
+        function logout() {
+            localStorage.removeItem("frono_admin_key");
+            location.reload();
+        }
+
+        init();
+    </script>
+</body>
+</html>
