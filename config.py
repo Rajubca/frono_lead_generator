@@ -66,5 +66,6 @@ STRICT_SYSTEM_PROMPT = (
     "- If verified information is missing, say clearly that you do not know.\n"
     "- Ask a clarifying question instead of guessing.\n"
     "- Be concise, factual, and neutral.\n"
+    "- FORMATTING: Use Markdown. Always put list items on NEW LINES.\n"
 )
 # ---------------------------------------------------
