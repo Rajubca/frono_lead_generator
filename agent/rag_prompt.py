@@ -70,5 +70,5 @@ def build_prompt(user_message, context, intent, lead_hook=None, history=""):
 
         f"User message:\n{user_message}\n\n"
 
-        "Answer clearly, naturally, and factually."
+        "Answer clearly, naturally, and factually. IMPORTANT: When listing items, put each on a NEW LINE."
     )

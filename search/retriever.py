@@ -132,10 +132,11 @@ def get_product_by_name(identifier: str):
     return results[0] if results else None
 
 
-def retrieve_context(query: str, intent: str, session: dict | None) -> str | None:
+def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str | None, list]:
     """
     Truth-gated retriever.
-    Returns ONLY verified information or None.
+    Returns (context_text, list_of_items).
+    list_of_items can be products OR category options.
     """
 
     # 0️⃣ Brand / About
@@ -146,21 +147,17 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             limit=1
         )
         if results:
-            return results[0]["content"]
-        # fallback if about page not indexed
+            return results[0]["content"], []
+
         return (
             "Hi! Welcome to Frono.uk 👋\n"
             "We offer Christmas products, heaters, outdoor items, and more.\n"
-            "How can I help you today?"
+            "How can I help you today?", []
         )
 
     # 1️⃣ Collection / Browse queries
-    # 1️⃣ Dynamic collection-based search
-    collections = get_all_collections()
-    # 1️⃣ Collection Group Based Search
     normalized_query = normalize_query(query)
     group = resolve_group_from_query(normalized_query)
-
 
     if group:
         collections = get_collections_for_group(group)
@@ -182,43 +179,48 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
 
         if results:
             visible = results[:MAX_PRODUCTS_TO_SHOW]
-
-            has_more = len(results) > MAX_PRODUCTS_TO_SHOW
+            product_list = [
+                {
+                    "sku": r.get("sku"),
+                    "name": r["name"],
+                    "price": float(r["price"]),
+                    "qty": r.get("qty", 0),
+                    "image": r.get("image", None)
+                }
+                for r in visible
+            ]
 
             if session is not None:
                 session["menu"] = {str(i+1): r['name'] for i, r in enumerate(visible)}
             
-            items = [
-                f"  • {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
-                for r in visible
-            ]
-
-            response = (
-                f"Here are some {group} products currently available:\n"
-                + "\n".join(items)
+            # --- FIX: STRICT SILENCE. DO NOT SEND PRODUCT NAMES TO LLM ---
+            context_text = (
+                f"FOUND_PRODUCTS: {len(visible)} items in category '{group}'. "
+                "CRITICAL: The products are ALREADY displayed in the UI. "
+                "Do NOT list them again. "
+                "Reply EXACTLY with: 'Here are the options for {group}:' "
+                "and ask if they would like to select one."
             )
 
-            if has_more:
-                response += (
-                    "\n\n  …and more products are available."
-                    "\n  Type **show more** to see additional options."
-                )
+            return context_text, product_list
 
-            return response
-
-        # ✅ NOW this executes correctly
+        # --- NO PRODUCTS FOUND -> SUGGEST CATEGORIES ---
         related_groups = [
             g for g in COLLECTION_GROUPS.keys()
             if g != group
-        ][:2]
+        ][:3]
 
-        suggestions = "\n".join(f"  • {g}" for g in related_groups)
+        options_list = [
+            {"type": "option", "label": g, "value": g}
+            for g in related_groups
+        ]
 
-        return (
-            f"We don’t currently have available products under **{group}**.\n\n"
-            f"You may want to explore:\n"
-            f"{suggestions}"
+        context_text = (
+            f"No products found for '{group}'. "
+            "Suggest these other categories to the user."
         )
+
+        return context_text, options_list
 
 
     # 2️⃣ Product search
@@ -244,13 +246,28 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
     if session is not None:
             session["menu"] = {str(i+1): r['name'] for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])}
             
-            items = [
-                f"{i+1}. {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
-                for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])
+            product_list = [
+                {
+                    "sku": r.get("sku"),
+                    "name": r["name"],
+                    "price": float(r["price"]),
+                    "qty": r.get("qty", 0),
+                    "image": r.get("image", None)
+                }
+                for r in product_results[:MAX_PRODUCTS_TO_SHOW]
             ]
-            return "Here are some products that match your request:\n" + "\n".join(items)
 
-    # 3️⃣ Policy / Knowledge
+            if product_list:
+                # --- FIX: STRICT SILENCE FOR SEARCH ---
+                context_text = (
+                    f"FOUND_PRODUCTS: {len(product_list)} items matching '{query}'. "
+                    "CRITICAL: The products are displayed in the UI. "
+                    "Do NOT list them. "
+                    "Reply EXACTLY with: 'I found these products for you:'"
+                )
+                return context_text, product_list
+
+    # 3️⃣ Policy / Knowledge (Fallback if no products)
     policy_results = search_opensearch(
         index="frono_site_facts",
         query={
@@ -269,7 +286,13 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             + "\n".join(
                 f"- {r['title']}: {r['content']}"
                 for r in policy_results
-            )
+            ), []
         )
 
-    return None
+    # --- STRICT FALLBACK: NO DATA ---
+    # Return empty list, force support message
+    return (
+        "No verified information found. "
+        "Reply EXACTLY with: 'I am unable to find information on that. Please contact support@frono.uk for assistance.'",
+        []
+    )
