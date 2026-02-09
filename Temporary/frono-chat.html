@@ -67,15 +67,25 @@
         #chat-body { flex: 1; overflow-y: auto; padding: 16px; background: #f4f4f4; display: flex; flex-direction: column; gap: 10px; }
 
         /* --- Messages --- */
-        .message { max-width: 80%; padding: 10px 14px; border-radius: 18px; font-size: 14px; line-height: 1.4; word-wrap: break-word; white-space: pre-wrap; }
+        .message { max-width: 80%; padding: 10px 14px; border-radius: 18px; font-size: 14px; line-height: 1.4; word-wrap: break-word; }
+
         .message.user { align-self: flex-end; background: #000; color: #fff; border-bottom-right-radius: 4px; }
         .message.bot { align-self: flex-start; background: #fff; color: #333; border: 1px solid #e0e0e0; border-bottom-left-radius: 4px; }
 
-        /* Markdown Styles */
-        .message.bot p { margin-bottom: 8px; }
+        /* Markdown Styles - OPTIMIZED FOR COMPACTNESS */
+        .message.bot p { margin-bottom: 4px; }
         .message.bot p:last-child { margin-bottom: 0; }
-        .message.bot ul, .message.bot ol { margin-left: 20px; margin-bottom: 8px; }
-        .message.bot li { margin-bottom: 4px; }
+
+        .message.bot ul, .message.bot ol {
+            margin: 4px 0 8px 18px;
+            padding-left: 0;
+        }
+
+        .message.bot li {
+            margin-bottom: 2px; /* Tight list spacing */
+            list-style-type: disc;
+        }
+
         .message.bot strong { font-weight: 600; }
 
         /* Timestamps */
@@ -194,20 +204,15 @@
              // Append to raw text tracker
              currentBotMessageDiv._rawText = (currentBotMessageDiv._rawText || "") + event.data;
 
-             // --- FIX: Robust list formatting ---
-             // Find any non-newline character followed by a numbered list item (1., 2., 10.)
-             // Capture group 1: The preceding char
-             // Capture group 2: The numbered item (e.g. "2.")
-             // Replace with: char + double newline + numbered item
+             // --- REFINED: Smarter list formatting ---
+
              let formattedText = currentBotMessageDiv._rawText;
 
-             // Regex explanation:
-             // ([^\n])      -> Any char that is NOT a newline
-             // \s*          -> Optional whitespace
-             // (\d+\.)      -> A number followed by a dot (capture group 2)
-             formattedText = formattedText.replace(/([^\n])\s*(\d+\.)/g, '\n\n');
+             // 1. Numbered Lists: (e.g. "Item 1. Name")
+             // Ensure double newline before "1.", "2." etc IF not already present
+             formattedText = formattedText.replace(/([^\n])\s*(\d+\.)\s/g, '\n\n ');
 
-             // Also handle bullet points if they get collapsed
+             // 2. Bullet Points: (e.g. "- Item")
              formattedText = formattedText.replace(/([^\n])\s*([•-])\s+/g, '\n\n ');
 
              // Render Markdown
@@ -336,8 +341,8 @@
     if (sender === "bot") {
         let formattedText = text;
 
-        // Robust list fix
-        formattedText = formattedText.replace(/([^\n])\s*(\d+\.)/g, '\n\n');
+        // REFINED: Same regex logic for initial messages
+        formattedText = formattedText.replace(/([^\n])\s*(\d+\.)\s/g, '\n\n ');
         formattedText = formattedText.replace(/([^\n])\s*([•-])\s+/g, '\n\n ');
 
         try {
