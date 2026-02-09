@@ -72,8 +72,8 @@
         .message.user { align-self: flex-end; background: #000; color: #fff; border-bottom-right-radius: 4px; }
         .message.bot { align-self: flex-start; background: #fff; color: #333; border: 1px solid #e0e0e0; border-bottom-left-radius: 4px; }
 
-        /* Markdown Styles - OPTIMIZED FOR COMPACTNESS */
-        .message.bot p { margin-bottom: 4px; }
+        /* Markdown Styles */
+        .message.bot p { margin-bottom: 6px; }
         .message.bot p:last-child { margin-bottom: 0; }
 
         .message.bot ul, .message.bot ol {
@@ -82,8 +82,8 @@
         }
 
         .message.bot li {
-            margin-bottom: 2px; /* Tight list spacing */
-            list-style-type: disc;
+            margin-bottom: 2px;
+            list-style-type: decimal; /* Ensure numbers */
         }
 
         .message.bot strong { font-weight: 600; }
@@ -204,18 +204,22 @@
              // Append to raw text tracker
              currentBotMessageDiv._rawText = (currentBotMessageDiv._rawText || "") + event.data;
 
-             // --- REFINED: Smarter list formatting ---
-
              let formattedText = currentBotMessageDiv._rawText;
 
-             // 1. Numbered Lists: (e.g. "Item 1. Name")
-             // Ensure double newline before "1.", "2." etc IF not already present
+             // --- ADJUSTED REGEX: Only add newline if needed ---
+             // We still want newlines before lists to make Markdown work,
+             // but 'marked' handles single newlines well for lists IF there's a preceding blank line.
+             // Actually, standard Markdown often requires a blank line before a list.
+             // So we enforce ONE double newline before the FIRST item, and just newlines between items.
+
+             // 1. Ensure list starts on new line (blank line before first item)
+             // Look for text -> newline -> number. If no double newline, add one.
+             // But simpler: just enforce double newline before any number if not present.
              formattedText = formattedText.replace(/([^\n])\s*(\d+\.)\s/g, '\n\n ');
 
-             // 2. Bullet Points: (e.g. "- Item")
+             // 2. Bullet points
              formattedText = formattedText.replace(/([^\n])\s*([•-])\s+/g, '\n\n ');
 
-             // Render Markdown
              try {
                 currentBotMessageDiv.innerHTML = marked.parse(formattedText);
              } catch(e) {
@@ -341,7 +345,7 @@
     if (sender === "bot") {
         let formattedText = text;
 
-        // REFINED: Same regex logic for initial messages
+        // Regex logic matching streamResponse
         formattedText = formattedText.replace(/([^\n])\s*(\d+\.)\s/g, '\n\n ');
         formattedText = formattedText.replace(/([^\n])\s*([•-])\s+/g, '\n\n ');
 

@@ -188,20 +188,26 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             if session is not None:
                 session["menu"] = {str(i+1): r['name'] for i, r in enumerate(visible)}
             
-            items = [
-                f"  • {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
-                for r in visible
-            ]
+            # --- FIX: Proper numbered formatting + No Stock unless requested ---
+            items = []
+            for i, r in enumerate(visible):
+                price = f"£{float(r['price']):,.2f}"
+                # Only show stock if low (urgency) or explicitly buying
+                stock_info = ""
+                if intent == "BUYING" or r.get("qty", 0) < 5:
+                    stock_info = f" (Only {r.get('qty', 0)} left!)"
+
+                items.append(f"{i+1}. **{r['name']}** — {price}{stock_info}")
 
             response = (
-                f"Here are some {group} products currently available:\n\n"
-                + "\n\n".join(items)
+                f"Here are some {group} products currently available:\n"
+                + "\n".join(items) # Use single newline for compact list
             )
 
             if has_more:
                 response += (
-                    "\n\n  …and more products are available."
-                    "\n  Type **show more** to see additional options."
+                    "\n\n…and more products are available."
+                    "\nType **show more** to see additional options."
                 )
 
             return response
@@ -212,7 +218,7 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             if g != group
         ][:2]
 
-        suggestions = "\n".join(f"  • {g}" for g in related_groups)
+        suggestions = "\n".join(f"• {g}" for g in related_groups)
 
         return (
             f"We don’t currently have available products under **{group}**.\n\n"
@@ -244,12 +250,18 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
     if session is not None:
             session["menu"] = {str(i+1): r['name'] for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])}
             
-            items = [
-                f"{i+1}. {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
-                for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])
-            ]
-            # --- FIX: Force double newlines in context ---
-            return "Here are some products that match your request:\n\n" + "\n\n".join(items)
+            items = []
+            for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW]):
+                price = f"£{float(r['price']):,.2f}"
+                stock_info = ""
+                # Only show stock if low or buying intent
+                if intent == "BUYING" or r.get("qty", 0) < 5:
+                    stock_info = f" (Only {r.get('qty', 0)} left!)"
+
+                items.append(f"{i+1}. **{r['name']}** — {price}{stock_info}")
+
+            # --- FIX: Force single newlines in context for cleaner list ---
+            return "Here are some products that match your request:\n" + "\n".join(items)
 
     # 3️⃣ Policy / Knowledge
     policy_results = search_opensearch(
