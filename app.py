@@ -25,7 +25,7 @@ from llm.llama_client import LLaMAClient
 from agent.health import check_health
 from agent.intent_detector import detect_intent, extract_contact_info
 from agent.rag_prompt import build_prompt
-from search.retriever import retrieve_context
+from search.retriever import retrieve_context, COLLECTION_GROUPS
 from search.leads_repo import create_lead
 from services.email_service import send_email
 from services.email_templates import customer_confirmation_email, sales_notification_email
@@ -117,6 +117,10 @@ def test_llama(req: PromptRequest):
         system_prompt=STRICT_SYSTEM_PROMPT
     )
     return {"response": response}
+@app.get("/api/collections")
+def get_collections():
+    return {"collections": list(COLLECTION_GROUPS.keys())}
+
 
 # ---------------------------------------------------
 # MAIN CHAT ENDPOINT (Standard REST - Non-Streaming)
@@ -383,6 +387,7 @@ def process_message(req: PromptRequest):
     # 7. Reserve Stock ONLY ON BUY
     # ------------------------------------------------
     context = None
+    products = None
     lead_hook = None
     
     # ------------------------------------------------
@@ -449,7 +454,7 @@ def process_message(req: PromptRequest):
     # 3️⃣ NORMAL BROWSING / INFO
     # ------------------------------------------------
     else:
-        context = retrieve_context(req.prompt, intent,session=session)
+        context, products = retrieve_context(req.prompt, intent, session=session)
 
 
 
@@ -562,7 +567,8 @@ def process_message(req: PromptRequest):
         "intent": intent,
         "final_prompt": final_prompt,
         "scorer": scorer,
-        "session": session
+        "session": session,
+        "products": products
     }
 # ---------------------------------------------------
 
@@ -582,6 +588,11 @@ def chat_stream(req: PromptRequest, background_tasks: BackgroundTasks):
     session = result["session"]
     scorer = result["scorer"]
     final_prompt = result["final_prompt"]
+
+    # Send products if available
+    products = result.get("products")
+    if products:
+        user_queue.put({"type": "products", "payload": products})
 
     # --- DEBUG LOGS (Now safe to use 'session') ---
     print(f"--- STREAM START CHECK ---")
@@ -673,6 +684,11 @@ def chat_stream_events(session_id: str, request: Request):
             if not q.empty():
                 token = q.get()
                 
+                if isinstance(token, dict) and token.get("type") == "products":
+                    import json
+                    yield f"event: products\ndata: {json.dumps(token["payload"])}\n\n"
+                    continue
+
                 if token == "__END__":
                     yield "event: end\ndata: END\n\n"
                     # We keep the queue alive for the session duration

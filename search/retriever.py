@@ -117,13 +117,30 @@ def get_all_collections():
 
 
 def get_product_by_name(identifier: str):
+    # Clean the identifier to remove buying intent phrases
+    clean_id = identifier.lower().strip()
+    prefixes = [
+        "i want to buy", "i want to purchase", "i want to order", "i want",
+        "buy", "purchase", "order", "get me", "send me"
+    ]
+
+    for p in prefixes:
+        if clean_id.startswith(p):
+            clean_id = clean_id[len(p):].strip()
+
+    # Remove common conversational filler
+    clean_id = clean_id.replace("please", "").strip()
+
+    # If the cleaned ID is empty (e.g. user just said "buy"), fall back to original (or handle differently)
+    query_text = clean_id if clean_id else identifier
+
     results = search_opensearch(
         index="frono_products",
         query={
             "bool": {
                 "should": [
-                    {"term": {"sku.keyword": identifier}},
-                    {"match": {"name": {"query": identifier, "operator": "and"}}}
+                    {"term": {"sku.keyword": query_text}},
+                    {"match": {"name": {"query": query_text, "operator": "and"}}}
                 ]
             }
         },
@@ -132,10 +149,10 @@ def get_product_by_name(identifier: str):
     return results[0] if results else None
 
 
-def retrieve_context(query: str, intent: str, session: dict | None) -> str | None:
+def retrieve_context(query: str, intent: str, session: dict | None) -> tuple[str | None, list | None]:
     """
     Truth-gated retriever.
-    Returns ONLY verified information or None.
+    Returns (response_text, products_list).
     """
 
     # 0️⃣ Brand / About
@@ -146,12 +163,11 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             limit=1
         )
         if results:
-            return results[0]["content"]
+            return results[0]["content"], None
         # fallback if about page not indexed
         return (
-            "Hi! Welcome to Frono.uk 👋\n"
-            "We offer Christmas products, heaters, outdoor items, and more.\n"
-            "How can I help you today?"
+            "Hi! Welcome to Frono.uk 👋\nWe offer Christmas products, heaters, outdoor items, and more.\nHow can I help you today?",
+            None
         )
 
     # 1️⃣ Collection / Browse queries
@@ -200,11 +216,10 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
 
             if has_more:
                 response += (
-                    "\n\n  …and more products are available."
-                    "\n  Type **show more** to see additional options."
+                    "\n\n  …and more products are available.\n  Type **show more** to see additional options."
                 )
 
-            return response
+            return response, visible
 
         # ✅ NOW this executes correctly
         related_groups = [
@@ -215,9 +230,8 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
         suggestions = "\n".join(f"  • {g}" for g in related_groups)
 
         return (
-            f"We don’t currently have available products under **{group}**.\n\n"
-            f"You may want to explore:\n"
-            f"{suggestions}"
+            f"We don’t currently have available products under **{group}**.\n\nYou may want to explore:\n{suggestions}",
+            None
         )
 
 
@@ -248,7 +262,7 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
                 f"{i+1}. {r['name']} (£{float(r['price']):,.2f} | Stock: {r.get('qty', 0)})"
                 for i, r in enumerate(product_results[:MAX_PRODUCTS_TO_SHOW])
             ]
-            return "Here are some products that match your request:\n" + "\n".join(items)
+            return "Here are some products that match your request:\n" + "\n".join(items), product_results[:MAX_PRODUCTS_TO_SHOW]
 
     # 3️⃣ Policy / Knowledge
     policy_results = search_opensearch(
@@ -269,7 +283,8 @@ def retrieve_context(query: str, intent: str, session: dict | None) -> str | Non
             + "\n".join(
                 f"- {r['title']}: {r['content']}"
                 for r in policy_results
-            )
+            ),
+            None
         )
 
-    return None
+    return None, None
