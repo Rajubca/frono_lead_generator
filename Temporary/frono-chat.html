@@ -102,7 +102,45 @@
         }
         #send-btn:hover { background: #333; }
         #send-btn:disabled { background: #ccc; cursor: not-allowed; }
-    </style>
+
+        /* Options Container */
+        .options-container {
+            display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;
+        }
+        .option-btn {
+            background: #000; color: #fff; padding: 6px 12px; border: none;
+            border-radius: 16px; cursor: pointer; font-size: 13px;
+            transition: background 0.2s;
+        }
+        .option-btn:hover { background: #333; }
+        .option-btn.disabled { background: #ccc; cursor: not-allowed; }
+
+        /* Product Cards */
+        .product-list {
+            display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px;
+            margin-top: 10px; max-width: 100%;
+        }
+        .product-card {
+            min-width: 200px; max-width: 200px; border: 1px solid #e0e0e0;
+            border-radius: 8px; padding: 10px; background: #fff;
+            display: flex; flex-direction: column; gap: 6px;
+        }
+        .product-card img {
+            width: 100%; height: 120px; object-fit: cover; border-radius: 4px;
+            background: #f0f0f0;
+        }
+        .product-title { font-weight: 600; font-size: 14px; }
+        .product-price { font-size: 13px; color: #555; }
+        .product-desc { font-size: 12px; color: #777;
+            overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
+            -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        }
+        .select-btn {
+            margin-top: auto; background: #000; color: #fff; border: none;
+            padding: 6px; border-radius: 4px; cursor: pointer; font-size: 12px;
+        }
+        .select-btn:hover { background: #333; }
+</style>
 </head>
 <body>
 
@@ -153,11 +191,16 @@
 
   /* ================= INIT ================= */
   document.addEventListener("DOMContentLoaded", function() {
-      appendMessage("Hi! I'm Frono BuddyAI. 👋 How can I help you today?", "bot");
+      appendMessage("Hi! I'm Frono BuddyAI. 👋 Please select an option to start.", "bot");
       
-      // Open the connection IMMEDIATELY with the Session ID
+      renderOptions([
+          {label: "Browse Collections", value: "collections"},
+          {label: "Customer Support", value: "support"}
+      ], "initial");
+      
+      toggleInputState(true); // Disable input initially
+
       setupEventSource();
-      
       setInterval(checkConnection, 10000); 
   });
 
@@ -192,6 +235,14 @@
       eventSource.addEventListener("end", function () {
           toggleInputState(false); // Unlock input
           currentBotMessageDiv = null; // Reset current message tracker
+      });
+
+
+      eventSource.addEventListener("products", function(e) {
+          try {
+              const products = JSON.parse(e.data);
+              renderProducts(products);
+          } catch(err) { console.error("Error parsing products", err); }
       });
 
       eventSource.onerror = function () {
@@ -319,9 +370,103 @@
     else { indicator.classList.add("hidden"); }
   }
 
-  function handleUserSend() {
+
+  /* ================= NEW LOGIC ================= */
+  function renderOptions(options, type) {
+      const container = document.createElement("div");
+      container.className = "options-container";
+
+      options.forEach(opt => {
+          const btn = document.createElement("button");
+          btn.className = "option-btn";
+          btn.textContent = opt.label || opt;
+          btn.onclick = () => handleOptionClick(opt, type, container);
+          container.appendChild(btn);
+      });
+
+      document.getElementById("chat-body").appendChild(container);
+      scrollToBottom();
+  }
+
+  function handleOptionClick(option, type, container) {
+      Array.from(container.children).forEach(b => b.classList.add("disabled"));
+
+      if (type === "initial") {
+          if (option.value === "collections") {
+              appendMessage("Please select a category:", "bot");
+              fetchCollections();
+          } else if (option.value === "support") {
+               appendMessage("You can reach us at support@frono.uk", "bot");
+               toggleInputState(false);
+          }
+      } else if (type === "collection") {
+          handleUserSend(option);
+      }
+  }
+
+  function fetchCollections() {
+      fetch(API_BASE + "/api/collections")
+      .then(r => r.json())
+      .then(data => {
+          renderOptions(data.collections, "collection");
+      })
+      .catch(e => {
+          console.error(e);
+          appendMessage("Failed to load collections.", "bot");
+      });
+  }
+
+  function renderProducts(products) {
+      const container = document.createElement("div");
+      container.className = "product-list";
+
+      products.forEach(p => {
+          const card = document.createElement("div");
+          card.className = "product-card";
+
+          const img = document.createElement("img");
+          img.src = p.image || "https://via.placeholder.com/200x120?text=No+Image";
+          card.appendChild(img);
+
+          const title = document.createElement("div");
+          title.className = "product-title";
+          title.textContent = p.name;
+          card.appendChild(title);
+
+          const price = document.createElement("div");
+          price.className = "product-price";
+          price.textContent = "£" + parseFloat(p.price).toFixed(2);
+          card.appendChild(price);
+
+          const btn = document.createElement("button");
+          btn.className = "select-btn";
+          btn.textContent = "Select";
+          btn.onclick = () => handleProductSelect(p, container);
+          card.appendChild(btn);
+
+          container.appendChild(card);
+      });
+
+      document.getElementById("chat-body").appendChild(container);
+      scrollToBottom();
+  }
+
+  function handleProductSelect(product, container) {
+      container.style.display = "none";
+
+      const details = document.createElement("div");
+      details.className = "product-card";
+      details.innerHTML = `<div class="product-title">${product.name}</div>
+          <div class="product-price">£${parseFloat(product.price).toFixed(2)}</div>
+          <div style="font-size:12px; color:green;">Selected for purchase</div>`;
+      document.getElementById("chat-body").appendChild(details);
+
+      handleUserSend("I want to buy " + product.name);
+  }
+
+  function handleUserSend(textOverride) {
     const input = document.getElementById("chat-text");
-    const text = input.value.trim();
+    const text = (typeof textOverride === "string" ? textOverride : input.value.trim());
     if (!text) return;
     toggleInputState(true);
     input.value = "";
