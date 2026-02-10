@@ -37,7 +37,8 @@ BUYING_PATTERNS = [
 
 SUPPORT_PATTERNS = [
     r"\b(return|refund|shipping|delivery|warranty|track)\b",
-    r"\b(cancel|exchange|broken|damaged|late|arrive)\b"
+    r"\b(cancel|exchange|broken|damaged|late|arrive)\b",
+    r"\b(where is my order|where's my order|order status|my order)\b"
 ]
 
 # --- 2. PRODUCT PATTERNS ---
@@ -110,6 +111,16 @@ def detect_intent(text: str) -> str:
         return "ABOUT_BRAND"
 
     # ---------------------------------------------------------
+    # 4. HIGH VALUE INTENTS (Buying & Support) - MOVED UP
+    # ---------------------------------------------------------
+    # Clear signals they want to spend money or need help.
+    if match_patterns(q, SUPPORT_PATTERNS):
+        return "SUPPORT"
+
+    if match_patterns(q, BUYING_PATTERNS):
+        return "BUYING"
+
+    # ---------------------------------------------------------
     # 3. AFFIRMATION / HOT SIGNAL (The "Hook" Response)
     # ---------------------------------------------------------
     # If we asked "Want a discount?" and they say "Yes", catch it here.
@@ -117,19 +128,9 @@ def detect_intent(text: str) -> str:
     if match_patterns(q, AFFIRMATION_PATTERNS) and len(q.split()) < 6:
         return "AFFIRMATION"
 
-    # inside detect_intent(), after BRAND but before BUYING
+    # inside detect_intent(), after BRAND but before BUYING (Actually Availability check)
     if match_patterns(q, AVAILABILITY_PATTERNS):
         return "PRODUCT_INFO"
-
-    # ---------------------------------------------------------
-    # 4. HIGH VALUE INTENTS (Buying & Support)
-    # ---------------------------------------------------------
-    # Clear signals they want to spend money or need help.
-    if match_patterns(q, BUYING_PATTERNS): 
-        return "BUYING"
-    
-    if match_patterns(q, SUPPORT_PATTERNS): 
-        return "SUPPORT"
     
     # ---------------------------------------------------------
     # 5. CONVERSATION CLOSERS
